@@ -822,8 +822,14 @@ function App() {
                     const captureCanvas = document.createElement('canvas');
                     captureCanvas.width = video.videoWidth;
                     captureCanvas.height = video.videoHeight;
-                    captureCanvas.getContext('2d').drawImage(video, 0, 0);
-                    console.log('[SEG] Captured webcam frame:', video.videoWidth, 'x', video.videoHeight);
+                    const ctx = captureCanvas.getContext('2d');
+                    // Apply flip if camera is flipped
+                    if (isCameraFlippedRef.current) {
+                        ctx.translate(video.videoWidth, 0);
+                        ctx.scale(-1, 1);
+                    }
+                    ctx.drawImage(video, 0, 0);
+                    console.log('[SEG] Captured webcam frame:', video.videoWidth, 'x', video.videoHeight, 'flipped:', isCameraFlippedRef.current);
                     const blob = await new Promise(r => captureCanvas.toBlob(r, 'image/jpeg', 0.95));
                     blobUrl = URL.createObjectURL(blob);
                     imageUrl = blobUrl;
