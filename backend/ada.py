@@ -1124,14 +1124,23 @@ class AudioLoop:
             raise e
 
     async def play_audio(self):
-        stream = await asyncio.to_thread(
-            pya.open,
-            format=FORMAT,
-            channels=CHANNELS,
-            rate=RECEIVE_SAMPLE_RATE,
-            output=True,
-            output_device_index=self.output_device_index,
-        )
+        try:
+            stream = await asyncio.to_thread(
+                pya.open,
+                format=FORMAT,
+                channels=CHANNELS,
+                rate=RECEIVE_SAMPLE_RATE,
+                output=True,
+                output_device_index=self.output_device_index,
+            )
+        except OSError as e:
+            print(f"[ADA] [ERR] Failed to open audio output stream: {e}")
+            print("[ADA] [WARN] Audio playback disabled. Responses will be text-only.")
+            while True:
+                bytestream = await self.audio_in_queue.get()
+                if self.on_audio_data:
+                    self.on_audio_data(bytestream)
+            return
         while True:
             bytestream = await self.audio_in_queue.get()
             if self.on_audio_data:
