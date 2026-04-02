@@ -64,58 +64,54 @@ class SegmentationEngine {
         const rawImage = await RawImage.read(imageUrl);
         const results = [];
 
+        // Phase 1: Encode image once (expensive)
+        const baseInputs = await this.samProcessor(rawImage);
+        const imageEmbeddings = await this.samModel.get_image_embeddings(baseInputs);
+        console.log('[SEG] Image encoded. Processing', detections.length, 'detections');
+
+        // Phase 2: Decode each detection (cheap)
         for (const det of detections) {
-            const { xmin, ymin, xmax, ymax } = det.box;
-            const input_boxes = [[[xmin, ymin, xmax, ymax]]];
+            try {
+                const { xmin, ymin, xmax, ymax } = det.box;
+                const input_boxes = [[[xmin, ymin, xmax, ymax]]];
 
-            const inputs = await this.samProcessor(rawImage, { input_boxes });
-            const outputs = await this.samModel(inputs);
+                const inputs = await this.samProcessor(rawImage, { input_boxes });
+                const outputs = await this.samModel({
+                    ...inputs,
+                    ...imageEmbeddings,
+                });
 
-            const masks = await this.samProcessor.post_process_masks(
-                outputs.pred_masks,
-                inputs.original_sizes,
-                inputs.reshaped_input_sizes
-            );
-
-            console.log('[SEG] masks structure:', masks, 'pred_masks shape:', outputs.pred_masks.dims);
-
-            // iou_scores shape: [1, 1, 3] for single box input → flat [3] scores
-            const scores = outputs.iou_scores.data;
-            let bestIdx = 0;
-            for (let i = 1; i < 3; i++) {
-                if (scores[i] > scores[bestIdx]) bestIdx = i;
-            }
-
-            // post_process_masks may return different structures depending on version
-            // Try to extract the best mask tensor
-            let bestMask;
-            if (masks[0] && masks[0][bestIdx]) {
-                bestMask = masks[0][bestIdx];
-            } else if (masks[0] && masks[0].dims) {
-                // Single tensor with shape [num_masks, H, W] — slice it
-                bestMask = masks[0];
-            } else {
-                // Fallback: use pred_masks directly (shape [1, 1, 3, H, W])
                 const pm = outputs.pred_masks;
-                const [b, p, n, h, w] = pm.dims;
+                console.log('[SEG] pred_masks dims:', pm.dims);
+
+                const scores = outputs.iou_scores.data;
+                let bestIdx = 0;
+                for (let i = 1; i < 3; i++) {
+                    if (scores[i] > scores[bestIdx]) bestIdx = i;
+                }
+
+                // Extract best mask from pred_masks tensor
+                const dims = pm.dims;
+                const h = dims[dims.length - 2];
+                const w = dims[dims.length - 1];
                 const maskSize = h * w;
                 const offset = bestIdx * maskSize;
                 const maskData = new Uint8Array(maskSize);
                 for (let i = 0; i < maskSize; i++) {
                     maskData[i] = pm.data[offset + i] > 0 ? 1 : 0;
                 }
-                bestMask = { data: maskData, dims: [h, w] };
+
+                results.push({
+                    label: det.label,
+                    score: det.score,
+                    box: det.box,
+                    mask: { data: maskData, dims: [h, w] },
+                    color,
+                });
+                console.log('[SEG] Mask extracted:', h, 'x', w, 'score:', scores[bestIdx].toFixed(3));
+            } catch (e) {
+                console.error('[SEG] Failed to segment detection:', det.label, e);
             }
-
-            console.log('[SEG] bestMask:', bestMask?.dims || 'no dims', 'data length:', bestMask?.data?.length);
-
-            results.push({
-                label: det.label,
-                score: det.score,
-                box: det.box,
-                mask: bestMask,
-                color,
-            });
         }
 
         return { masks: results, width: rawImage.width, height: rawImage.height };
