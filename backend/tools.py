@@ -65,8 +65,24 @@ read_file_tool = {
     }
 }
 
+calculate_tool = {
+    "name": "calculate",
+    "description": "Evaluates a mathematical expression using SymPy. Use this for any calculation — arithmetic, algebra, calculus, equations, etc. Extract numbers from the conversation context (e.g. objects seen on camera, values from the dialogue) and build the expression yourself.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "expression": {
+                "type": "STRING",
+                "description": "A SymPy-compatible math expression, e.g. '3 * 5 + sqrt(16)', 'integrate(x**2, x)', 'solve(x**2 - 4, x)'"
+            }
+        },
+        "required": ["expression"]
+    }
+}
+
 tools_list = [{"function_declarations": [
     generate_cad_prototype_tool,
+    calculate_tool,
     write_file_tool,
     read_directory_tool,
     read_file_tool

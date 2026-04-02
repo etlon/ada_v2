@@ -194,9 +194,25 @@ class TestAgentImports:
 
 class TestToolConfirmation:
     """Test tool confirmation handling."""
-    
+
     def test_resolve_tool_confirmation_method(self):
         """Test resolve_tool_confirmation exists."""
         from ada import AudioLoop
         assert hasattr(AudioLoop, 'resolve_tool_confirmation')
         print("resolve_tool_confirmation method exists")
+
+
+class TestCalculateToolDefinition:
+    """Test calculate tool definition."""
+
+    def test_calculate_tool_in_tools_list(self):
+        """Test calculate_tool is included in tools_list."""
+        from tools import tools_list, calculate_tool
+
+        assert calculate_tool['name'] == 'calculate'
+        assert 'expression' in calculate_tool['parameters']['properties']
+        assert 'expression' in calculate_tool['parameters']['required']
+
+        # Verify it's in the tools_list
+        all_names = [t['name'] for t in tools_list[0]['function_declarations']]
+        assert 'calculate' in all_names
