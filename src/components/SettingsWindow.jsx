@@ -25,7 +25,6 @@ const TOOLS = [
     { id: 'show_camera', label: 'Show Camera' },
     { id: 'stop_camera', label: 'Stop Camera' },
     { id: 'annotate_camera', label: 'Annotate Camera' },
-    { id: 'segment_camera', label: 'Segment Camera' },
 ];
 
 const SettingsWindow = ({

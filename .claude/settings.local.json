@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xxd -l 16 \"C:/Users/Cedric/claude_projects/ada_v2/backend/face_landmarker.task\")",
+      "Bash(xxd -l 16 \"C:/Users/Cedric/claude_projects/ada_v2/public/hand_landmarker.task\")",
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(/c/Users/Cedric/Documents/hassio-cert/mkcert.exe -install)",
+      "Read(//c/Users/Cedric/Documents/hassio-cert/**)",
+      "Bash(./mkcert.exe -cert-file ada.server.pem -key-file ada.server-key.pem ada.server 192.168.2.41)"
+    ]
+  }
+}

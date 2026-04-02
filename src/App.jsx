@@ -16,7 +16,6 @@ import KasaWindow from './components/KasaWindow';
 import PrinterWindow from './components/PrinterWindow';
 import SettingsWindow from './components/SettingsWindow';
 import CameraFeedWindow from './components/CameraFeedWindow';
-import SegmentationOverlay from './components/SegmentationOverlay';
 
 
 
@@ -64,9 +63,6 @@ function App() {
     const [showBrowserWindow, setShowBrowserWindow] = useState(false);
     const [cameraFeed, setCameraFeed] = useState(null); // { camera, snapshot_url, frigate_url }
     const [cameraAnnotations, setCameraAnnotations] = useState([]);
-    const [segMasks, setSegMasks] = useState(null); // { masks, width, height }
-    const [segLoading, setSegLoading] = useState(false);
-    const [segProgress, setSegProgress] = useState(null); // { model, progress, file }
     const [webcamFullscreen, setWebcamFullscreen] = useState(false);
 
     // Printing workflow status (for top toolbar display)
@@ -466,10 +462,6 @@ function App() {
                 setCameraAnnotations(data.annotations || []);
                 return;
             }
-            if (data.type === 'segment_request') {
-                runSegmentation(data.target, data.color, data.camera);
-                return;
-            }
             setBrowserData(prev => ({
                 image: data.image,
                 logs: [...prev.logs, data.log].filter(l => l).slice(-50) // Keep last 50 logs
@@ -788,72 +780,6 @@ function App() {
         const startTime = Math.max(now, playbackNextTimeRef.current);
         source.start(startTime);
         playbackNextTimeRef.current = startTime + buffer.duration;
-    };
-
-    // Ref to avoid stale closure in socket handler
-    const cameraFeedRef = useRef(null);
-    useEffect(() => { cameraFeedRef.current = cameraFeed; }, [cameraFeed]);
-
-    // Run semantic segmentation on camera/webcam feed
-    const runSegmentation = async (target, color, camera) => {
-        setSegMasks(null); // Clear old masks
-        setSegLoading(true);
-        let blobUrl = null;
-        try {
-            const engine = (await import('./segmentation/SegmentationEngine')).default;
-            if (!engine.ready) {
-                addMessage('System', 'Loading segmentation models...');
-                await engine.load((progress) => {
-                    console.log(`[SEG] ${progress.model}: ${progress.progress}% ${progress.file || ''}`);
-                    setSegProgress(progress);
-                });
-                setSegProgress(null);
-                addMessage('System', 'Segmentation models loaded.');
-            }
-
-            let imageUrl;
-            const currentFeed = cameraFeedRef.current;
-            if (camera && currentFeed) {
-                imageUrl = `${currentFeed.snapshot_url}?t=${Date.now()}`;
-            } else {
-                // Webcam: capture full-res frame from video element
-                const video = videoRef.current;
-                if (video && video.videoWidth > 0) {
-                    const captureCanvas = document.createElement('canvas');
-                    captureCanvas.width = video.videoWidth;
-                    captureCanvas.height = video.videoHeight;
-                    const ctx = captureCanvas.getContext('2d');
-                    // Apply flip if camera is flipped
-                    if (isCameraFlippedRef.current) {
-                        ctx.translate(video.videoWidth, 0);
-                        ctx.scale(-1, 1);
-                    }
-                    ctx.drawImage(video, 0, 0);
-                    console.log('[SEG] Captured webcam frame:', video.videoWidth, 'x', video.videoHeight, 'flipped:', isCameraFlippedRef.current);
-                    const blob = await new Promise(r => captureCanvas.toBlob(r, 'image/jpeg', 0.95));
-                    blobUrl = URL.createObjectURL(blob);
-                    imageUrl = blobUrl;
-                }
-            }
-
-            if (!imageUrl) {
-                addMessage('System', 'No camera feed active for segmentation.');
-                return;
-            }
-
-            const result = await engine.segment(imageUrl, target, { color });
-            if (result.masks.length === 0) {
-                addMessage('System', `Nothing matching "${target}" found in the image.`);
-            } else {
-                setSegMasks(result);
-            }
-        } catch (e) {
-            console.error('[SEG] Segmentation failed:', e);
-            addMessage('System', `Segmentation error: ${e.message}`);
-        } finally {
-            if (blobUrl) URL.revokeObjectURL(blobUrl);
-            setSegLoading(false);
-        }
     };
 
     const startMicVisualizer = async (deviceId) => {
@@ -1766,29 +1692,6 @@ function App() {
                             </svg>
                         )}
 
-                        {/* Segmentation overlay on webcam */}
-                        {!cameraFeed && segMasks && segMasks.masks.length > 0 && (
-                            <SegmentationOverlay
-                                masks={segMasks.masks}
-                                imgWidth={segMasks.width}
-                                imgHeight={segMasks.height}
-                            />
-                        )}
-                        {!cameraFeed && segLoading && (
-                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-30 gap-2">
-                                {segProgress ? (
-                                    <>
-                                        <span className="text-cyan-400 text-xs font-mono">{segProgress.model}</span>
-                                        <div className="w-32 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                                            <div className="h-full bg-cyan-400 rounded-full transition-all duration-200" style={{ width: `${segProgress.progress}%` }} />
-                                        </div>
-                                        <span className="text-cyan-400/60 text-[10px] font-mono">{segProgress.progress}%</span>
-                                    </>
-                                ) : (
-                                    <span className="text-cyan-400 text-sm font-mono animate-pulse">Segmenting...</span>
-                                )}
-                            </div>
-                        )}
                     </div>
                 </div>
 
@@ -1918,10 +1821,7 @@ function App() {
                                 camera={cameraFeed.camera}
                                 snapshotUrl={cameraFeed.snapshot_url}
                                 annotations={cameraAnnotations}
-                                segMasks={segMasks}
-                                segLoading={segLoading}
-                                segProgress={segProgress}
-                                onClose={() => { setCameraFeed(null); setCameraAnnotations([]); setSegMasks(null); }}
+                                onClose={() => { setCameraFeed(null); setCameraAnnotations([]); }}
                             />
                         </div>
                     </div>

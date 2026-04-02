@@ -78,8 +78,7 @@ DEFAULT_SETTINGS = {
         "cancel_reminder": True,
         "show_camera": True,
         "stop_camera": True,
-        "annotate_camera": True,
-        "segment_camera": True
+        "annotate_camera": True
     },
     "printers": [], # List of {host, port, name, type}
     "kasa_devices": [], # List of {ip, alias, model}

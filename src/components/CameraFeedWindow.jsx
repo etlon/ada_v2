@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Camera, Maximize2, Minimize2 } from 'lucide-react';
-import SegmentationOverlay from './SegmentationOverlay';
 
-const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], segMasks, segLoading, segProgress, onClose }) => {
+const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], onClose }) => {
     const [imgSrc, setImgSrc] = useState(`${snapshotUrl}?t=${Date.now()}`);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const containerRef = useRef(null);
@@ -35,9 +34,6 @@ const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], segMasks, seg
                     <Camera size={14} />
                     <span>{camera}</span>
                     <span className="text-green-400 text-[10px] animate-pulse">LIVE</span>
-                    {annotations.length > 0 && (
-                        <span className="text-yellow-400 text-[10px]">{annotations.length} annotations</span>
-                    )}
                 </div>
                 <div className="flex items-center gap-1">
                     <button onClick={toggleFullscreen} className="hover:bg-cyan-500/20 text-gray-400 hover:text-cyan-400 p-1 rounded transition-colors">
@@ -55,7 +51,7 @@ const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], segMasks, seg
                     className="w-full h-full"
                     style={{ objectFit: 'contain' }}
                 />
-                {/* Annotation overlay */}
+                {/* Annotation overlay (bounding boxes from Gemini) */}
                 {annotations.length > 0 && (
                     <svg
                         className="absolute inset-0 w-full h-full pointer-events-none"
@@ -65,77 +61,22 @@ const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], segMasks, seg
                         {annotations.map((ann, i) => {
                             if (ann.type === 'fill') {
                                 return (
-                                    <rect
-                                        key={i}
-                                        x={ann.x}
-                                        y={ann.y}
-                                        width={ann.w}
-                                        height={ann.h}
-                                        fill={ann.color}
-                                        opacity={0.3}
-                                    />
+                                    <rect key={i} x={ann.x} y={ann.y} width={ann.w} height={ann.h} fill={ann.color} opacity={0.3} />
                                 );
                             }
                             return (
                                 <g key={i}>
-                                    <rect
-                                        x={ann.x}
-                                        y={ann.y}
-                                        width={ann.w}
-                                        height={ann.h}
-                                        fill="none"
-                                        stroke={ann.color}
-                                        strokeWidth={0.003}
-                                    />
+                                    <rect x={ann.x} y={ann.y} width={ann.w} height={ann.h} fill="none" stroke={ann.color} strokeWidth={0.003} />
                                     {ann.label && (
                                         <g>
-                                            <rect
-                                                x={ann.x}
-                                                y={Math.max(0, ann.y - 0.03)}
-                                                width={Math.min(ann.label.length * 0.012 + 0.01, 0.3)}
-                                                height={0.028}
-                                                fill={ann.color}
-                                                opacity={0.8}
-                                            />
-                                            <text
-                                                x={ann.x + 0.005}
-                                                y={Math.max(0.02, ann.y - 0.008)}
-                                                fill="white"
-                                                fontSize={0.018}
-                                                fontFamily="monospace"
-                                                fontWeight="bold"
-                                            >
-                                                {ann.label}
-                                            </text>
+                                            <rect x={ann.x} y={Math.max(0, ann.y - 0.03)} width={Math.min(ann.label.length * 0.012 + 0.01, 0.3)} height={0.028} fill={ann.color} opacity={0.8} />
+                                            <text x={ann.x + 0.005} y={Math.max(0.02, ann.y - 0.008)} fill="white" fontSize={0.018} fontFamily="monospace" fontWeight="bold">{ann.label}</text>
                                         </g>
                                     )}
                                 </g>
                             );
                         })}
                     </svg>
-                )}
-                {segMasks && segMasks.masks.length > 0 && (
-                    <SegmentationOverlay
-                        masks={segMasks.masks}
-                        imgWidth={segMasks.width}
-                        imgHeight={segMasks.height}
-                        objectFit="contain"
-                    />
-                )}
-                {segLoading && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-30 gap-2">
-                        {segProgress ? (
-                            <>
-                                <span className="text-cyan-400 text-xs font-mono">{segProgress.model}</span>
-                                <div className="w-40 h-1.5 bg-gray-700 rounded-full overflow-hidden">
-                                    <div className="h-full bg-cyan-400 rounded-full transition-all duration-200" style={{ width: `${segProgress.progress}%` }} />
-                                </div>
-                                <span className="text-cyan-400/60 text-[10px] font-mono">{segProgress.progress}%</span>
-                            </>
-                        ) : (
-                            <span className="text-cyan-400 text-sm font-mono animate-pulse">Segmenting...</span>
-                        )}
-                    </div>
                 )}
             </div>
         </div>
