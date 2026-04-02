@@ -97,7 +97,8 @@ function App() {
         browser: { x: window.innerWidth / 2 - 300, y: window.innerHeight / 2 },
         kasa: { x: window.innerWidth / 2 + 350, y: window.innerHeight / 2 - 100 },
         printer: { x: window.innerWidth / 2 - 350, y: window.innerHeight / 2 - 100 },
-        tools: { x: window.innerWidth / 2, y: window.innerHeight - 100 } // Fixed bottom OFFSET
+        tools: { x: window.innerWidth / 2, y: window.innerHeight - 100 }, // Fixed bottom OFFSET
+        camera: { x: window.innerWidth / 2, y: window.innerHeight / 2 - 100 }
     });
 
     const [elementSizes, setElementSizes] = useState({
@@ -114,7 +115,7 @@ function App() {
 
     // Z-Index Stacking Order (last element = highest z-index)
     const [zIndexOrder, setZIndexOrder] = useState([
-        'visualizer', 'chat', 'tools', 'video', 'cad', 'browser', 'kasa', 'printer'
+        'visualizer', 'chat', 'tools', 'video', 'cad', 'browser', 'kasa', 'printer', 'camera'
     ]);
 
     // Hand Control State
@@ -1760,11 +1761,31 @@ function App() {
 
                 {/* Camera Feed Window */}
                 {cameraFeed && (
-                    <CameraFeedWindow
-                        camera={cameraFeed.camera}
-                        snapshotUrl={cameraFeed.snapshot_url}
-                        onClose={() => setCameraFeed(null)}
-                    />
+                    <div
+                        id="camera"
+                        className={`absolute flex flex-col transition-all duration-200
+                        backdrop-blur-xl bg-black/40 border border-white/10 shadow-2xl overflow-hidden rounded-lg
+                        ${activeDragElement === 'camera' ? 'ring-2 ring-green-500 bg-green-500/10' : ''}
+                    `}
+                        style={{
+                            left: elementPositions.camera?.x || window.innerWidth / 2,
+                            top: elementPositions.camera?.y || window.innerHeight / 2 - 100,
+                            transform: 'translate(-50%, -50%)',
+                            width: '640px',
+                            height: '400px',
+                            pointerEvents: 'auto',
+                            zIndex: getZIndex('camera')
+                        }}
+                        onMouseDown={(e) => handleMouseDown(e, 'camera')}
+                    >
+                        <div className="relative z-20 w-full h-full">
+                            <CameraFeedWindow
+                                camera={cameraFeed.camera}
+                                snapshotUrl={cameraFeed.snapshot_url}
+                                onClose={() => setCameraFeed(null)}
+                            />
+                        </div>
+                    </div>
                 )}
 
                 {/* Chat Module */}
