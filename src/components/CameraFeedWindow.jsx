@@ -16,7 +16,7 @@ const OBJECT_COLORS = {
 const getObjectColor = (label) => OBJECT_COLORS[label] || '#06b6d4';
 
 const MIN_SCALE = 1;
-const MAX_SCALE = 10;
+const MAX_SCALE = 50;
 const SCROLL_FACTOR = 1.15;
 
 const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], trackedObjects = [], zoomTarget, onZoomReset, onClose }) => {
@@ -63,9 +63,34 @@ const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], trackedObject
         return items;
     }, [annotations, trackedObjects]);
 
-    // When zoomTarget changes (Gemini says "zoom into X"), compute initial pan-zoom
+    // When zoomTarget changes, handle different zoom actions
     useEffect(() => {
-        if (!zoomTarget || !zoomTarget.label || allLabeled.length === 0) return;
+        if (!zoomTarget) return;
+
+        // Handle in/out zoom (relative to current view center)
+        if (zoomTarget.action === 'in' || zoomTarget.action === 'out') {
+            const rect = viewportRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const factor = zoomTarget.action === 'in' ? (zoomTarget.factor || 2.0) : (1 / (zoomTarget.factor || 2.0));
+
+            setScale(prevScale => {
+                const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, prevScale * factor));
+                const ratio = newScale / prevScale;
+                // Zoom towards viewport center
+                const cx = rect.width / 2;
+                const cy = rect.height / 2;
+                setTranslate(prev => {
+                    const newTx = cx - (cx - prev.x) * ratio;
+                    const newTy = cy - (cy - prev.y) * ratio;
+                    return clampTranslate(newTx, newTy, newScale, rect.width, rect.height);
+                });
+                return newScale;
+            });
+            return;
+        }
+
+        // Handle label-based zoom
+        if (!zoomTarget.label || allLabeled.length === 0) return;
         const targetLabel = zoomTarget.label.toLowerCase();
         const match = allLabeled.find(a => a.label && a.label.toLowerCase().includes(targetLabel))
             || allLabeled.find(a => a.label && targetLabel.includes(a.label.toLowerCase()));
@@ -82,7 +107,6 @@ const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], trackedObject
         const scaleY = rect.height / (rh * rect.height);
         const newScale = Math.min(Math.max(Math.min(scaleX, scaleY), MIN_SCALE), MAX_SCALE);
 
-        // Center the region
         const centerX = (rx + rw / 2) * rect.width;
         const centerY = (ry + rh / 2) * rect.height;
         const newTx = rect.width / 2 - centerX * newScale;

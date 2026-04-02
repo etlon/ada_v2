@@ -476,6 +476,8 @@ function App() {
                     setCameraZoom(null);
                 } else if (data.action === 'zoom' && data.label) {
                     setCameraZoom({ label: data.label });
+                } else if (data.action === 'in' || data.action === 'out') {
+                    setCameraZoom({ action: data.action, factor: data.factor || 2.0, _t: Date.now() });
                 }
                 return;
             }

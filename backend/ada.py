@@ -348,17 +348,21 @@ annotate_camera_tool = {
 
 zoom_camera_tool = {
     "name": "zoom_camera",
-    "description": "Zooms the camera view into a previously annotated bounding box by its label, or resets zoom to show the full frame. Use this when the user says 'zoom into X' where X matches an annotation label. Use action 'reset' to zoom back out.",
+    "description": "Controls the camera zoom level. Actions: 'zoom' to zoom into an annotation by label, 'in' to zoom in further (e.g. 'zoom mehr rein'), 'out' to zoom out a step, 'reset' to return to full view. The 'factor' parameter controls how much to zoom (default 2.0). There is no maximum — you can always zoom further in.",
     "parameters": {
         "type": "OBJECT",
         "properties": {
             "action": {
                 "type": "STRING",
-                "description": "'zoom' to zoom into a labeled annotation, 'reset' to return to full view."
+                "description": "'zoom' to zoom into a labeled annotation, 'in' to zoom in further, 'out' to zoom out a step, 'reset' to return to full view."
             },
             "label": {
                 "type": "STRING",
                 "description": "The label of the annotation to zoom into. Required when action is 'zoom'."
+            },
+            "factor": {
+                "type": "NUMBER",
+                "description": "Zoom multiplier for 'in'/'out' actions. Default 2.0. Use higher values (3-5) when the user wants a big zoom change."
             }
         },
         "required": ["action"]
@@ -1572,11 +1576,20 @@ class AudioLoop:
                                 elif fc.name == "zoom_camera":
                                     action = fc.args.get("action", "zoom")
                                     label = fc.args.get("label", "")
-                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'zoom_camera' action={action} label={label}")
+                                    factor = fc.args.get("factor", 2.0)
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'zoom_camera' action={action} label={label} factor={factor}")
                                     if action == "reset":
                                         if self.on_web_data:
                                             self.on_web_data({"type": "camera_zoom", "action": "reset"})
                                         result_str = "Zoom reset to full view."
+                                    elif action == "in":
+                                        if self.on_web_data:
+                                            self.on_web_data({"type": "camera_zoom", "action": "in", "factor": factor})
+                                        result_str = f"Zoomed in by {factor}x."
+                                    elif action == "out":
+                                        if self.on_web_data:
+                                            self.on_web_data({"type": "camera_zoom", "action": "out", "factor": factor})
+                                        result_str = f"Zoomed out by {factor}x."
                                     else:
                                         if self.on_web_data:
                                             self.on_web_data({"type": "camera_zoom", "action": "zoom", "label": label})
