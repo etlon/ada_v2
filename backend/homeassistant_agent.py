@@ -50,15 +50,22 @@ class HomeAssistantAgent:
         if not self.entities:
             await self.get_states()
 
+        if not domain:
+            # No domain filter — return a domain summary instead of all entities
+            domains = {}
+            for eid in self.entities:
+                d = eid.split(".")[0]
+                domains[d] = domains.get(d, 0) + 1
+            return {"summary": domains}
+
         entities = []
         for eid, state in self.entities.items():
-            if domain and not eid.startswith(f"{domain}."):
+            if not eid.startswith(f"{domain}."):
                 continue
             entities.append({
                 "entity_id": eid,
                 "state": state.get("state"),
                 "friendly_name": state.get("attributes", {}).get("friendly_name", eid),
-                "domain": eid.split(".")[0],
             })
         return entities
 

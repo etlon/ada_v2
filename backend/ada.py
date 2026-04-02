@@ -182,15 +182,16 @@ iterate_cad_tool = {
 
 ha_list_entities_tool = {
     "name": "ha_list_entities",
-    "description": "Lists Home Assistant entities. Optionally filter by domain (light, cover, switch, climate, sensor, media_player, etc.).",
+    "description": "Lists Home Assistant entities. You MUST provide a domain to filter by (light, cover, switch, climate, sensor, media_player, etc.). Without a domain, only a count summary per domain is returned.",
     "parameters": {
         "type": "OBJECT",
         "properties": {
             "domain": {
                 "type": "STRING",
-                "description": "Optional domain filter: 'light', 'cover', 'switch', 'climate', 'sensor', 'media_player', etc."
+                "description": "Required domain filter: 'light', 'cover', 'switch', 'climate', 'sensor', 'media_player', 'binary_sensor', 'automation', etc."
             }
         },
+        "required": ["domain"]
     }
 }
 
@@ -1116,8 +1117,11 @@ class AudioLoop:
                                     entities = await self.ha_agent.list_entities(domain=domain)
                                     if isinstance(entities, dict) and "error" in entities:
                                         result_str = entities["error"]
+                                    elif isinstance(entities, dict) and "summary" in entities:
+                                        lines = [f"  {d}: {c} entities" for d, c in sorted(entities["summary"].items())]
+                                        result_str = f"Domain summary (call again with a specific domain to see entities):\n" + "\n".join(lines)
                                     else:
-                                        lines = [f"- {e['friendly_name']} ({e['entity_id']}): {e['state']}" for e in entities[:50]]
+                                        lines = [f"- {e['friendly_name']} ({e['entity_id']}): {e['state']}" for e in entities]
                                         result_str = f"Found {len(entities)} entities:\n" + "\n".join(lines)
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": result_str}
