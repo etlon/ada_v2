@@ -49,13 +49,15 @@ class SegmentationEngine {
     async segment(imageUrl, textPrompt, options = {}) {
         if (!this.ready) throw new Error('Models not loaded. Call load() first.');
 
-        const { threshold = 0.3, color = 'rgba(255, 255, 0, 0.4)' } = options;
+        const { threshold = 0.15, color = 'rgba(255, 255, 0, 0.4)' } = options;
 
         const labels = textPrompt.toLowerCase().endsWith('.')
             ? [textPrompt.toLowerCase()]
             : [textPrompt.toLowerCase() + '.'];
 
+        console.log('[SEG] Detecting with labels:', labels, 'threshold:', threshold);
         const detections = await this.detector(imageUrl, labels, { threshold });
+        console.log('[SEG] Detections:', detections);
 
         if (!detections || detections.length === 0) {
             return { masks: [], message: `Nothing matching "${textPrompt}" found.` };
