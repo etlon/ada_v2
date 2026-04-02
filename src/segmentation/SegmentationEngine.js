@@ -93,22 +93,22 @@ class SegmentationEngine {
         const rawImage = await RawImage.read(imageUrl);
         const results = [];
 
-        // Phase 1: Encode image once (expensive)
-        const baseInputs = await this.samProcessor(rawImage);
-        const imageEmbeddings = await this.samModel.get_image_embeddings(baseInputs);
-        console.log('[SEG] Image encoded. Processing', detections.length, 'detections');
+        console.log('[SEG] Processing', detections.length, 'detections on', rawImage.width, 'x', rawImage.height, 'image');
 
-        // Phase 2: Decode each detection (cheap)
         for (const det of detections) {
             try {
                 const { xmin, ymin, xmax, ymax } = det.box;
-                const input_boxes = [[[xmin, ymin, xmax, ymax]]];
+                console.log('[SEG] Detection:', det.label, 'score:', det.score, 'box:', xmin, ymin, xmax, ymax);
 
-                const inputs = await this.samProcessor(rawImage, { input_boxes });
-                const outputs = await this.samModel({
-                    ...inputs,
-                    ...imageEmbeddings,
-                });
+                // Use point prompt at center of bounding box (more reliable than box prompt)
+                const cx = Math.round((xmin + xmax) / 2);
+                const cy = Math.round((ymin + ymax) / 2);
+                const input_points = [[[cx, cy]]];
+
+                const inputs = await this.samProcessor(rawImage, { input_points });
+                console.log('[SEG] SAM inputs keys:', Object.keys(inputs));
+
+                const outputs = await this.samModel(inputs);
 
                 const pm = outputs.pred_masks;
                 console.log('[SEG] pred_masks dims:', pm.dims);
