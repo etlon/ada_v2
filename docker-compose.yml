@@ -10,6 +10,10 @@ services:
       - HA_URL=${HA_URL}
       - HA_TOKEN=${HA_TOKEN}
       - FRIGATE_URL=${FRIGATE_URL}
+      - MQTT_BROKER=${MQTT_BROKER:-192.168.2.91}
+      - MQTT_PORT=${MQTT_PORT:-1883}
+      - MQTT_USER=${MQTT_USER:-}
+      - MQTT_PASS=${MQTT_PASS:-}
       - HOST=0.0.0.0
       - PORT=8000
     volumes:

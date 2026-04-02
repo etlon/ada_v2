@@ -62,7 +62,9 @@ function App() {
     const [showCadWindow, setShowCadWindow] = useState(false);
     const [showBrowserWindow, setShowBrowserWindow] = useState(false);
     const [cameraFeed, setCameraFeed] = useState(null); // { camera, snapshot_url, frigate_url }
+    const [cameraZoom, setCameraZoom] = useState(null); // { x, y, w, h } normalized region to zoom into
     const [cameraAnnotations, setCameraAnnotations] = useState([]);
+    const [cameraTrackedObjects, setCameraTrackedObjects] = useState([]);
     const [webcamFullscreen, setWebcamFullscreen] = useState(false);
 
     // Printing workflow status (for top toolbar display)
@@ -458,8 +460,27 @@ function App() {
                 setCameraAnnotations([]);
                 return;
             }
+            if (data.type === 'camera_stop') {
+                setCameraFeed(null);
+                setCameraAnnotations([]);
+                setCameraTrackedObjects([]);
+                setCameraZoom(null);
+                return;
+            }
             if (data.type === 'camera_annotations') {
                 setCameraAnnotations(data.annotations || []);
+                return;
+            }
+            if (data.type === 'camera_zoom') {
+                if (data.action === 'reset') {
+                    setCameraZoom(null);
+                } else if (data.action === 'zoom' && data.label) {
+                    setCameraZoom({ label: data.label });
+                }
+                return;
+            }
+            if (data.type === 'camera_tracked_objects') {
+                setCameraTrackedObjects(data.objects || []);
                 return;
             }
             setBrowserData(prev => ({
@@ -1821,7 +1842,10 @@ function App() {
                                 camera={cameraFeed.camera}
                                 snapshotUrl={cameraFeed.snapshot_url}
                                 annotations={cameraAnnotations}
-                                onClose={() => { setCameraFeed(null); setCameraAnnotations([]); }}
+                                trackedObjects={cameraTrackedObjects}
+                                zoomTarget={cameraZoom}
+                                onZoomReset={() => setCameraZoom(null)}
+                                onClose={() => { setCameraFeed(null); setCameraAnnotations([]); setCameraTrackedObjects([]); setCameraZoom(null); }}
                             />
                         </div>
                     </div>

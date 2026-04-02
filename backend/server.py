@@ -79,6 +79,7 @@ DEFAULT_SETTINGS = {
         "show_camera": True,
         "stop_camera": True,
         "annotate_camera": True,
+        "zoom_camera": False,
         "calculate": False,
     },
     "printers": [], # List of {host, port, name, type}

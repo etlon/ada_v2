@@ -24,3 +24,5 @@ mediapipe
 build123d
 # Math computation
 sympy
+# MQTT (Frigate live tracking)
+aiomqtt

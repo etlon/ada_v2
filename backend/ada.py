@@ -346,7 +346,26 @@ annotate_camera_tool = {
     }
 }
 
-tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool, ha_list_entities_tool, ha_control_tool, ha_get_state_tool, set_reminder_tool, list_reminders_tool, cancel_reminder_tool, show_camera_tool, stop_camera_tool, annotate_camera_tool] + tools_list[0]['function_declarations'][1:]}]
+zoom_camera_tool = {
+    "name": "zoom_camera",
+    "description": "Zooms the camera view into a previously annotated bounding box by its label, or resets zoom to show the full frame. Use this when the user says 'zoom into X' where X matches an annotation label. Use action 'reset' to zoom back out.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "action": {
+                "type": "STRING",
+                "description": "'zoom' to zoom into a labeled annotation, 'reset' to return to full view."
+            },
+            "label": {
+                "type": "STRING",
+                "description": "The label of the annotation to zoom into. Required when action is 'zoom'."
+            }
+        },
+        "required": ["action"]
+    }
+}
+
+tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool, ha_list_entities_tool, ha_control_tool, ha_get_state_tool, set_reminder_tool, list_reminders_tool, cancel_reminder_tool, show_camera_tool, stop_camera_tool, annotate_camera_tool, zoom_camera_tool] + tools_list[0]['function_declarations'][1:]}]
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are JARVIS — a highly intelligent, calm, and composed AI assistant. "
@@ -439,8 +458,15 @@ class AudioLoop:
         self.reminder_agent = ReminderAgent()
         self.frigate_url = os.getenv("FRIGATE_URL", "").rstrip("/")
         self.frigate_cameras = []  # Cached camera names
+        self.frigate_camera_resolutions = {}  # {camera_name: (width, height)}
         self._camera_feed_task = None
         self._active_camera = None
+        self._mqtt_task = None
+        self._tracked_objects = {}  # {event_id: {camera, label, box, score, ...}}
+        self._mqtt_broker = os.getenv("MQTT_BROKER", "")
+        self._mqtt_port = int(os.getenv("MQTT_PORT", "1883"))
+        self._mqtt_user = os.getenv("MQTT_USER", "")
+        self._mqtt_pass = os.getenv("MQTT_PASS", "")
 
         self.send_text_task = None
         self.stop_event = asyncio.Event()
@@ -543,10 +569,12 @@ class AudioLoop:
         await self.stop_camera_feed()
         self._active_camera = camera_name
         self._camera_feed_task = asyncio.create_task(self._stream_camera(camera_name))
+        await self._start_mqtt_tracking(camera_name)
         print(f"[ADA] [CAMERA] Started streaming '{camera_name}' to Gemini")
 
     async def stop_camera_feed(self):
         """Stop streaming camera to Gemini."""
+        await self._stop_mqtt_tracking()
         if self._camera_feed_task:
             self._camera_feed_task.cancel()
             try:
@@ -556,6 +584,96 @@ class AudioLoop:
             self._camera_feed_task = None
             self._active_camera = None
             print("[ADA] [CAMERA] Stopped streaming camera to Gemini")
+
+    async def _start_mqtt_tracking(self, camera_name):
+        """Start MQTT subscription for Frigate live object tracking."""
+        await self._stop_mqtt_tracking()
+        if not self._mqtt_broker:
+            print("[ADA] [MQTT] No MQTT_BROKER configured, skipping live tracking")
+            return
+        self._tracked_objects = {}
+        self._mqtt_task = asyncio.create_task(self._mqtt_listener(camera_name))
+
+    async def _stop_mqtt_tracking(self):
+        """Stop MQTT tracking."""
+        if self._mqtt_task:
+            self._mqtt_task.cancel()
+            try:
+                await self._mqtt_task
+            except asyncio.CancelledError:
+                pass
+            self._mqtt_task = None
+            self._tracked_objects = {}
+
+    async def _mqtt_listener(self, camera_name):
+        """Listen to Frigate MQTT events and push tracked objects to frontend."""
+        import aiomqtt
+        import json as json_mod
+
+        res_w, res_h = self.frigate_camera_resolutions.get(camera_name, (1280, 720))
+        print(f"[ADA] [MQTT] Connecting to {self._mqtt_broker}:{self._mqtt_port} for '{camera_name}' (resolution: {res_w}x{res_h})")
+
+        try:
+            connect_kwargs = {
+                "hostname": self._mqtt_broker,
+                "port": self._mqtt_port,
+            }
+            if self._mqtt_user:
+                connect_kwargs["username"] = self._mqtt_user
+            if self._mqtt_pass:
+                connect_kwargs["password"] = self._mqtt_pass
+
+            async with aiomqtt.Client(**connect_kwargs) as mqtt_client:
+                await mqtt_client.subscribe("frigate/events")
+                print(f"[ADA] [MQTT] Subscribed to frigate/events")
+
+                async for message in mqtt_client.messages:
+                    try:
+                        payload = json_mod.loads(message.payload.decode())
+                        event_type = payload.get("type")  # "new", "update", "end"
+                        after = payload.get("after", {})
+                        event_id = after.get("id")
+                        event_camera = after.get("camera")
+
+                        if not event_id or event_camera != camera_name:
+                            continue
+
+                        if event_type == "end":
+                            self._tracked_objects.pop(event_id, None)
+                        else:
+                            # box is [y_min, x_min, y_max, x_max] in pixels
+                            box = after.get("box", [])
+                            if len(box) == 4:
+                                y_min, x_min, y_max, x_max = box
+                                self._tracked_objects[event_id] = {
+                                    "id": event_id,
+                                    "label": after.get("label", ""),
+                                    "score": round(after.get("top_score", 0), 2),
+                                    "x": x_min / res_w,
+                                    "y": y_min / res_h,
+                                    "w": (x_max - x_min) / res_w,
+                                    "h": (y_max - y_min) / res_h,
+                                    "stationary": after.get("stationary", False),
+                                }
+
+                        # Push current tracked objects to frontend
+                        if self.on_web_data:
+                            self.on_web_data({
+                                "type": "camera_tracked_objects",
+                                "objects": list(self._tracked_objects.values()),
+                            })
+
+                    except Exception as e:
+                        print(f"[ADA] [MQTT] Error processing event: {e}")
+
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            print(f"[ADA] [MQTT] Connection error: {e}")
+            # Retry after delay
+            await asyncio.sleep(5)
+            if self._active_camera == camera_name:
+                self._mqtt_task = asyncio.create_task(self._mqtt_listener(camera_name))
 
     async def _stream_camera(self, camera_name):
         """Periodically fetch snapshot from Frigate and send to Gemini."""
@@ -873,7 +991,7 @@ class AudioLoop:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad", "ha_list_entities", "ha_control", "ha_get_state", "set_reminder", "list_reminders", "cancel_reminder", "show_camera", "stop_camera", "annotate_camera", "calculate"]:
+                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad", "ha_list_entities", "ha_control", "ha_get_state", "set_reminder", "list_reminders", "cancel_reminder", "show_camera", "stop_camera", "annotate_camera", "zoom_camera", "calculate"]:
                                 prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
                                 
                                 # Check Permissions (Default to True if not set)
@@ -1429,6 +1547,8 @@ class AudioLoop:
                                 elif fc.name == "stop_camera":
                                     print(f"[ADA DEBUG] [TOOL] Tool Call: 'stop_camera'")
                                     await self.stop_camera_feed()
+                                    if self.on_web_data:
+                                        self.on_web_data({"type": "camera_stop"})
                                     result_str = "Camera feed stopped."
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": result_str}
@@ -1444,6 +1564,23 @@ class AudioLoop:
                                             "annotations": annotations,
                                         })
                                     result_str = f"Drew {len(annotations)} annotations on the camera feed."
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "zoom_camera":
+                                    action = fc.args.get("action", "zoom")
+                                    label = fc.args.get("label", "")
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'zoom_camera' action={action} label={label}")
+                                    if action == "reset":
+                                        if self.on_web_data:
+                                            self.on_web_data({"type": "camera_zoom", "action": "reset"})
+                                        result_str = "Zoom reset to full view."
+                                    else:
+                                        if self.on_web_data:
+                                            self.on_web_data({"type": "camera_zoom", "action": "zoom", "label": label})
+                                        result_str = f"Zoomed into annotation '{label}'."
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": result_str}
                                     )
@@ -1573,7 +1710,7 @@ class AudioLoop:
                         except Exception as e:
                             print(f"[ADA] Failed to fetch HA entities: {e}")
 
-                    # Pre-fetch Frigate cameras
+                    # Pre-fetch Frigate cameras and resolutions
                     if self.frigate_url:
                         try:
                             import aiohttp
@@ -1581,8 +1718,15 @@ class AudioLoop:
                                 async with sess.get(f"{self.frigate_url}/api/config", timeout=aiohttp.ClientTimeout(total=5)) as resp:
                                     if resp.status == 200:
                                         config = await resp.json()
-                                        self.frigate_cameras = list(config.get("cameras", {}).keys())
+                                        cameras = config.get("cameras", {})
+                                        self.frigate_cameras = list(cameras.keys())
+                                        for cam_name, cam_cfg in cameras.items():
+                                            detect = cam_cfg.get("detect", {})
+                                            w = detect.get("width", 1280)
+                                            h = detect.get("height", 720)
+                                            self.frigate_camera_resolutions[cam_name] = (w, h)
                                         print(f"[ADA] Loaded {len(self.frigate_cameras)} Frigate cameras: {self.frigate_cameras}")
+                                        print(f"[ADA] Camera resolutions: {self.frigate_camera_resolutions}")
                         except Exception as e:
                             print(f"[ADA] Failed to fetch Frigate cameras: {e}")
 
