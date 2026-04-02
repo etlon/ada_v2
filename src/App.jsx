@@ -67,6 +67,7 @@ function App() {
     const [segMasks, setSegMasks] = useState(null); // { masks, width, height }
     const [segLoading, setSegLoading] = useState(false);
     const [segProgress, setSegProgress] = useState(null); // { model, progress, file }
+    const [webcamFullscreen, setWebcamFullscreen] = useState(false);
 
     // Printing workflow status (for top toolbar display)
     const [slicingStatus, setSlicingStatus] = useState({ active: false, percent: 0, message: '' });
@@ -1708,19 +1709,28 @@ function App() {
 
                 <div
                     id="video"
-                    className={`fixed bottom-4 right-4 transition-all duration-200 
-                        ${isVideoOn ? 'opacity-100' : 'opacity-0 pointer-events-none'} 
+                    className={`fixed bottom-4 right-4 transition-all duration-200
+                        ${isVideoOn ? 'opacity-100' : 'opacity-0 pointer-events-none'}
                         backdrop-blur-md bg-black/40 border border-white/10 shadow-xl rounded-xl
+                        ${webcamFullscreen ? 'inset-0 !fixed z-50 !bottom-0 !right-0' : ''}
                     `}
-                    style={{ zIndex: 20 }}
+                    style={{ zIndex: webcamFullscreen ? 50 : 20 }}
                 >
                     <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-5 pointer-events-none mix-blend-overlay"></div>
-                    {/* Compact Display Container (1080p Source) */}
-                    <div className="relative border border-cyan-500/30 rounded-lg overflow-hidden shadow-[0_0_20px_rgba(6,182,212,0.1)] w-80 aspect-video bg-black/80">
+                    {/* Display Container */}
+                    <div className={`relative border border-cyan-500/30 rounded-lg overflow-hidden shadow-[0_0_20px_rgba(6,182,212,0.1)] bg-black/80 ${webcamFullscreen ? 'w-full h-full' : 'w-80 aspect-video'}`}>
                         {/* Hidden Video Element (Source) */}
                         <video ref={videoRef} autoPlay muted className="absolute inset-0 w-full h-full object-cover opacity-0" />
 
-                        <div className="absolute top-2 left-2 text-[10px] text-cyan-400 bg-black/60 backdrop-blur px-2 py-0.5 rounded border border-cyan-500/20 z-10 font-bold tracking-wider">CAM_01</div>
+                        <div className="absolute top-2 left-2 flex items-center gap-2 z-10">
+                            <span className="text-[10px] text-cyan-400 bg-black/60 backdrop-blur px-2 py-0.5 rounded border border-cyan-500/20 font-bold tracking-wider">CAM_01</span>
+                            <button
+                                onClick={() => setWebcamFullscreen(!webcamFullscreen)}
+                                className="text-[10px] text-cyan-400 bg-black/60 backdrop-blur px-2 py-0.5 rounded border border-cyan-500/20 hover:bg-cyan-500/20 cursor-pointer"
+                            >
+                                {webcamFullscreen ? 'MIN' : 'MAX'}
+                            </button>
+                        </div>
 
                         {/* Canvas for Displaying Video + Skeleton (Ensures overlap) */}
                         <canvas

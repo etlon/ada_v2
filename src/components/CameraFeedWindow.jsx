@@ -118,6 +118,7 @@ const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], segMasks, seg
                         masks={segMasks.masks}
                         imgWidth={segMasks.width}
                         imgHeight={segMasks.height}
+                        objectFit="contain"
                     />
                 )}
                 {segLoading && (

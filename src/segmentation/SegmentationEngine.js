@@ -90,6 +90,10 @@ class SegmentationEngine {
             return { masks: [], message: `Nothing matching "${textPrompt}" found.` };
         }
 
+        // Keep only top 3 detections by score to avoid false positives
+        detections.sort((a, b) => b.score - a.score);
+        detections = detections.slice(0, 3);
+
         const rawImage = await RawImage.read(imageUrl);
         const results = [];
 
