@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Camera, Maximize2, Minimize2 } from 'lucide-react';
+import SegmentationOverlay from './SegmentationOverlay';
 
-const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], onClose }) => {
+const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], segMasks, segLoading, onClose }) => {
     const [imgSrc, setImgSrc] = useState(`${snapshotUrl}?t=${Date.now()}`);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const containerRef = useRef(null);
@@ -111,6 +112,18 @@ const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], onClose }) =>
                             );
                         })}
                     </svg>
+                )}
+                {segMasks && segMasks.masks.length > 0 && (
+                    <SegmentationOverlay
+                        masks={segMasks.masks}
+                        imgWidth={segMasks.width}
+                        imgHeight={segMasks.height}
+                    />
+                )}
+                {segLoading && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-30">
+                        <span className="text-cyan-400 text-sm font-mono animate-pulse">Segmenting...</span>
+                    </div>
                 )}
             </div>
         </div>
