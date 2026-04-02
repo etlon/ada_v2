@@ -578,7 +578,7 @@ class AudioLoop:
     async def send_realtime(self):
         # 16kHz mono 16-bit silence: 100ms = 3200 bytes of zeros
         KEEPALIVE_SILENCE = b'\x00' * 3200
-        KEEPALIVE_INTERVAL = 15  # seconds
+        KEEPALIVE_INTERVAL = 10  # seconds
 
         while True:
             try:
@@ -957,7 +957,7 @@ class AudioLoop:
 
     async def receive_audio(self):
         "Background task to reads from the websocket and write pcm chunks to the output queue"
-        RECEIVE_TIMEOUT = 60  # seconds — if no data for this long, assume connection dead
+        RECEIVE_TIMEOUT = 30  # seconds — if no data for this long, assume connection dead
         try:
             while True:
                 turn = self.session.receive()
