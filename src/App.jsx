@@ -66,6 +66,7 @@ function App() {
     const [cameraAnnotations, setCameraAnnotations] = useState([]);
     const [segMasks, setSegMasks] = useState(null); // { masks, width, height }
     const [segLoading, setSegLoading] = useState(false);
+    const [segProgress, setSegProgress] = useState(null); // { model, progress, file }
 
     // Printing workflow status (for top toolbar display)
     const [slicingStatus, setSlicingStatus] = useState({ active: false, percent: 0, message: '' });
@@ -800,10 +801,12 @@ function App() {
         try {
             const engine = (await import('./segmentation/SegmentationEngine')).default;
             if (!engine.ready) {
-                addMessage('System', 'Loading segmentation models (first time may take ~30s)...');
+                addMessage('System', 'Loading segmentation models...');
                 await engine.load((progress) => {
-                    console.log(`[SEG] Loading ${progress.model}: ${progress.progress}%`);
+                    console.log(`[SEG] ${progress.model}: ${progress.progress}% ${progress.file || ''}`);
+                    setSegProgress(progress);
                 });
+                setSegProgress(null);
                 addMessage('System', 'Segmentation models loaded.');
             }
 
@@ -1751,8 +1754,18 @@ function App() {
                             />
                         )}
                         {!cameraFeed && segLoading && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-30">
-                                <span className="text-cyan-400 text-sm font-mono animate-pulse">Segmenting...</span>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 z-30 gap-2">
+                                {segProgress ? (
+                                    <>
+                                        <span className="text-cyan-400 text-xs font-mono">{segProgress.model}</span>
+                                        <div className="w-32 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                                            <div className="h-full bg-cyan-400 rounded-full transition-all duration-200" style={{ width: `${segProgress.progress}%` }} />
+                                        </div>
+                                        <span className="text-cyan-400/60 text-[10px] font-mono">{segProgress.progress}%</span>
+                                    </>
+                                ) : (
+                                    <span className="text-cyan-400 text-sm font-mono animate-pulse">Segmenting...</span>
+                                )}
                             </div>
                         )}
                     </div>
@@ -1886,6 +1899,7 @@ function App() {
                                 annotations={cameraAnnotations}
                                 segMasks={segMasks}
                                 segLoading={segLoading}
+                                segProgress={segProgress}
                                 onClose={() => { setCameraFeed(null); setCameraAnnotations([]); setSegMasks(null); }}
                             />
                         </div>

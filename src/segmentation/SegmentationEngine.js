@@ -1,6 +1,6 @@
 import { pipeline, SamModel, AutoProcessor, RawImage } from '@huggingface/transformers';
 
-const GROUNDING_DINO_MODEL = 'onnx-community/grounding-dino-tiny-ONNX';
+const GROUNDING_DINO_MODEL = 'onnx-community/grounding-dino-base-ONNX';
 const SAM_MODEL = 'Xenova/slimsam-77-uniform';
 
 class SegmentationEngine {
@@ -19,20 +19,38 @@ class SegmentationEngine {
         this.onProgress = onProgress || null;
 
         try {
-            if (this.onProgress) this.onProgress({ model: 'Grounding DINO', progress: 0 });
+            const makeProgressCb = (modelName) => (event) => {
+                if (this.onProgress && event.status === 'progress') {
+                    this.onProgress({
+                        model: modelName,
+                        progress: Math.round(event.progress || 0),
+                        file: event.file || '',
+                        loaded: event.loaded || 0,
+                        total: event.total || 0,
+                    });
+                } else if (this.onProgress && event.status === 'done') {
+                    this.onProgress({ model: modelName, progress: 100, file: event.file || '' });
+                } else if (this.onProgress && event.status === 'initiate') {
+                    this.onProgress({ model: modelName, progress: 0, file: event.file || '', status: 'downloading' });
+                }
+            };
+
+            if (this.onProgress) this.onProgress({ model: 'Grounding DINO Base', progress: 0, status: 'downloading' });
             this.detector = await pipeline('zero-shot-object-detection', GROUNDING_DINO_MODEL, {
                 device: 'webgpu',
                 dtype: 'fp32',
+                progress_callback: makeProgressCb('Grounding DINO Base'),
             });
-            if (this.onProgress) this.onProgress({ model: 'Grounding DINO', progress: 100 });
+            if (this.onProgress) this.onProgress({ model: 'Grounding DINO Base', progress: 100 });
 
-            if (this.onProgress) this.onProgress({ model: 'SlimSAM', progress: 0 });
+            if (this.onProgress) this.onProgress({ model: 'SlimSAM', progress: 0, status: 'downloading' });
             this.samModel = await SamModel.from_pretrained(SAM_MODEL, {
                 device: 'webgpu',
                 dtype: {
                     vision_encoder: 'fp16',
                     prompt_encoder_mask_decoder: 'fp16',
                 },
+                progress_callback: makeProgressCb('SlimSAM'),
             });
             this.samProcessor = await AutoProcessor.from_pretrained(SAM_MODEL);
             if (this.onProgress) this.onProgress({ model: 'SlimSAM', progress: 100 });
