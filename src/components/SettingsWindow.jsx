@@ -19,6 +19,10 @@ const TOOLS = [
     { id: 'ha_list_entities', label: 'HA List Entities' },
     { id: 'ha_control', label: 'HA Control' },
     { id: 'ha_get_state', label: 'HA Get State' },
+    { id: 'set_reminder', label: 'Set Reminder' },
+    { id: 'list_reminders', label: 'List Reminders' },
+    { id: 'cancel_reminder', label: 'Cancel Reminder' },
+    { id: 'show_camera', label: 'Show Camera' },
 ];
 
 const SettingsWindow = ({

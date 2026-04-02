@@ -75,7 +75,8 @@ DEFAULT_SETTINGS = {
         "ha_get_state": True,
         "set_reminder": True,
         "list_reminders": True,
-        "cancel_reminder": True
+        "cancel_reminder": True,
+        "show_camera": True
     },
     "printers": [], # List of {host, port, name, type}
     "kasa_devices": [], # List of {ip, alias, model}

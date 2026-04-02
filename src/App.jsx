@@ -15,6 +15,7 @@ import AuthLock from './components/AuthLock';
 import KasaWindow from './components/KasaWindow';
 import PrinterWindow from './components/PrinterWindow';
 import SettingsWindow from './components/SettingsWindow';
+import CameraFeedWindow from './components/CameraFeedWindow';
 
 
 
@@ -60,6 +61,7 @@ function App() {
     const [showPrinterWindow, setShowPrinterWindow] = useState(false);
     const [showCadWindow, setShowCadWindow] = useState(false);
     const [showBrowserWindow, setShowBrowserWindow] = useState(false);
+    const [cameraFeed, setCameraFeed] = useState(null); // { camera, snapshot_url, frigate_url }
 
     // Printing workflow status (for top toolbar display)
     const [slicingStatus, setSlicingStatus] = useState({ active: false, percent: 0, message: '' });
@@ -448,6 +450,10 @@ function App() {
             setCadThoughts(prev => prev + data.text);
         });
         socket.on('browser_frame', (data) => {
+            if (data.type === 'camera_feed') {
+                setCameraFeed(data);
+                return;
+            }
             setBrowserData(prev => ({
                 image: data.image,
                 logs: [...prev.logs, data.log].filter(l => l).slice(-50) // Keep last 50 logs
@@ -1751,6 +1757,15 @@ function App() {
                     </div>
                 )}
 
+
+                {/* Camera Feed Window */}
+                {cameraFeed && (
+                    <CameraFeedWindow
+                        camera={cameraFeed.camera}
+                        snapshotUrl={cameraFeed.snapshot_url}
+                        onClose={() => setCameraFeed(null)}
+                    />
+                )}
 
                 {/* Chat Module */}
                 <ChatModule

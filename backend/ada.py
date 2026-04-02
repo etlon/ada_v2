@@ -292,7 +292,21 @@ cancel_reminder_tool = {
     }
 }
 
-tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool, ha_list_entities_tool, ha_control_tool, ha_get_state_tool, set_reminder_tool, list_reminders_tool, cancel_reminder_tool] + tools_list[0]['function_declarations'][1:]}]
+show_camera_tool = {
+    "name": "show_camera",
+    "description": "Shows a live camera feed from Frigate NVR. Provide the camera name, or omit to list available cameras.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "camera": {
+                "type": "STRING",
+                "description": "Camera name (e.g., 'front_door'). Omit to list all available cameras."
+            }
+        },
+    }
+}
+
+tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool, ha_list_entities_tool, ha_control_tool, ha_get_state_tool, set_reminder_tool, list_reminders_tool, cancel_reminder_tool, show_camera_tool] + tools_list[0]['function_declarations'][1:]}]
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are JARVIS — a highly intelligent, calm, and composed AI assistant. "
@@ -383,6 +397,7 @@ class AudioLoop:
         self.printer_agent = PrinterAgent()
         self.ha_agent = HomeAssistantAgent()
         self.reminder_agent = ReminderAgent()
+        self.frigate_url = os.getenv("FRIGATE_URL", "").rstrip("/")
 
         self.send_text_task = None
         self.stop_event = asyncio.Event()
@@ -777,7 +792,7 @@ class AudioLoop:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad", "ha_list_entities", "ha_control", "ha_get_state", "set_reminder", "list_reminders", "cancel_reminder"]:
+                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad", "ha_list_entities", "ha_control", "ha_get_state", "set_reminder", "list_reminders", "cancel_reminder", "show_camera"]:
                                 prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
                                 
                                 # Check Permissions (Default to True if not set)
@@ -1281,6 +1296,45 @@ class AudioLoop:
                                     print(f"[ADA DEBUG] [TOOL] Tool Call: 'cancel_reminder' id={rid}")
                                     success = self.reminder_agent.cancel_reminder(rid)
                                     result_str = f"Reminder #{rid} cancelled." if success else f"Reminder #{rid} not found."
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "show_camera":
+                                    camera = fc.args.get("camera")
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'show_camera' camera={camera}")
+
+                                    if not self.frigate_url:
+                                        result_str = "Frigate is not configured. Set FRIGATE_URL in .env"
+                                    elif not camera:
+                                        # List available cameras
+                                        try:
+                                            import aiohttp
+                                            async with aiohttp.ClientSession() as sess:
+                                                async with sess.get(f"{self.frigate_url}/api/config", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                                                    if resp.status == 200:
+                                                        config = await resp.json()
+                                                        cameras = list(config.get("cameras", {}).keys())
+                                                        result_str = f"Available cameras: {', '.join(cameras)}" if cameras else "No cameras found."
+                                                    else:
+                                                        result_str = f"Frigate API error: HTTP {resp.status}"
+                                        except Exception as e:
+                                            result_str = f"Failed to reach Frigate: {e}"
+                                    else:
+                                        # Send live stream URL to frontend
+                                        stream_url = f"{self.frigate_url}/api/{camera}/latest.jpg"
+                                        live_url = f"{self.frigate_url}/live/webrtc/api/ws?src={camera}"
+                                        if self.on_web_data:
+                                            self.on_web_data({
+                                                "type": "camera_feed",
+                                                "camera": camera,
+                                                "stream_url": f"{self.frigate_url}/api/{camera}",
+                                                "snapshot_url": stream_url,
+                                                "frigate_url": self.frigate_url,
+                                            })
+                                        result_str = f"Showing live feed for camera '{camera}'."
+
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": result_str}
                                     )
