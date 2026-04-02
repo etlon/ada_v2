@@ -180,7 +180,71 @@ iterate_cad_tool = {
     "behavior": "NON_BLOCKING"
 }
 
-tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool] + tools_list[0]['function_declarations'][1:]}]
+ha_list_entities_tool = {
+    "name": "ha_list_entities",
+    "description": "Lists Home Assistant entities. Optionally filter by domain (light, cover, switch, climate, sensor, media_player, etc.).",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "domain": {
+                "type": "STRING",
+                "description": "Optional domain filter: 'light', 'cover', 'switch', 'climate', 'sensor', 'media_player', etc."
+            }
+        },
+    }
+}
+
+ha_control_tool = {
+    "name": "ha_control",
+    "description": "Controls a Home Assistant entity. Can turn on/off/toggle lights, switches, open/close blinds/covers, set brightness, color, position, temperature, etc.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "target": {
+                "type": "STRING",
+                "description": "Entity ID (e.g. 'light.living_room') or friendly name (e.g. 'Living Room Light')."
+            },
+            "action": {
+                "type": "STRING",
+                "description": "Action: 'turn_on', 'turn_off', 'toggle', 'open_cover', 'close_cover', 'set_cover_position'."
+            },
+            "brightness": {
+                "type": "INTEGER",
+                "description": "Optional brightness (0-255) for lights."
+            },
+            "color_name": {
+                "type": "STRING",
+                "description": "Optional color name for lights (e.g. 'red', 'blue')."
+            },
+            "position": {
+                "type": "INTEGER",
+                "description": "Optional position (0-100) for covers/blinds."
+            },
+            "temperature": {
+                "type": "NUMBER",
+                "description": "Optional target temperature for climate entities."
+            }
+        },
+        "required": ["target", "action"]
+    }
+}
+
+ha_get_state_tool = {
+    "name": "ha_get_state",
+    "description": "Gets the current state and attributes of a Home Assistant entity.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "target": {
+                "type": "STRING",
+                "description": "Entity ID or friendly name."
+            }
+        },
+        "required": ["target"]
+    }
+}
+
+tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool, ha_list_entities_tool, ha_control_tool, ha_get_state_tool] + tools_list[0]['function_declarations'][1:]}]
 
 # --- CONFIG UPDATE: Enabled Transcription ---
 config = types.LiveConnectConfig(
@@ -209,6 +273,7 @@ from cad_agent import CadAgent
 from web_agent import WebAgent
 from kasa_agent import KasaAgent
 from printer_agent import PrinterAgent
+from homeassistant_agent import HomeAssistantAgent
 
 class AudioLoop:
     def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, on_device_update=None, on_error=None, input_device_index=None, input_device_name=None, output_device_index=None, kasa_agent=None):
@@ -258,6 +323,7 @@ class AudioLoop:
         self.web_agent = WebAgent()
         self.kasa_agent = kasa_agent if kasa_agent else KasaAgent()
         self.printer_agent = PrinterAgent()
+        self.ha_agent = HomeAssistantAgent()
 
         self.send_text_task = None
         self.stop_event = asyncio.Event()
@@ -652,7 +718,7 @@ class AudioLoop:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad"]:
+                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad", "ha_list_entities", "ha_control", "ha_get_state"]:
                                 prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
                                 
                                 # Check Permissions (Default to True if not set)
@@ -1043,6 +1109,80 @@ class AudioLoop:
                                         id=fc.id, name=fc.name, response={"result": result_str}
                                     )
                                     function_responses.append(function_response)
+
+                                elif fc.name == "ha_list_entities":
+                                    domain = fc.args.get("domain")
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'ha_list_entities' domain={domain}")
+                                    entities = await self.ha_agent.list_entities(domain=domain)
+                                    if isinstance(entities, dict) and "error" in entities:
+                                        result_str = entities["error"]
+                                    else:
+                                        lines = [f"- {e['friendly_name']} ({e['entity_id']}): {e['state']}" for e in entities[:50]]
+                                        result_str = f"Found {len(entities)} entities:\n" + "\n".join(lines)
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "ha_get_state":
+                                    target = fc.args["target"]
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'ha_get_state' target={target}")
+                                    entity_id = self.ha_agent.resolve_entity(target) or target
+                                    state = await self.ha_agent.get_entity_state(entity_id)
+                                    if "error" in state:
+                                        result_str = state["error"]
+                                    else:
+                                        attrs = state.get("attributes", {})
+                                        attr_lines = [f"  {k}: {v}" for k, v in attrs.items() if k != "friendly_name"]
+                                        result_str = f"{state['friendly_name']} ({entity_id}): {state['state']}\nAttributes:\n" + "\n".join(attr_lines[:20])
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "ha_control":
+                                    target = fc.args["target"]
+                                    action = fc.args["action"]
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'ha_control' target={target} action={action}")
+
+                                    # Resolve entity
+                                    if not self.ha_agent.entities:
+                                        await self.ha_agent.get_states()
+                                    entity_id = self.ha_agent.resolve_entity(target) or target
+
+                                    kwargs = {}
+                                    if fc.args.get("brightness") is not None:
+                                        kwargs["brightness"] = int(fc.args["brightness"])
+                                    if fc.args.get("color_name"):
+                                        kwargs["color_name"] = fc.args["color_name"]
+                                    if fc.args.get("temperature") is not None:
+                                        kwargs["temperature"] = float(fc.args["temperature"])
+
+                                    if action == "turn_on":
+                                        result = await self.ha_agent.turn_on(entity_id, **kwargs)
+                                    elif action == "turn_off":
+                                        result = await self.ha_agent.turn_off(entity_id, **kwargs)
+                                    elif action == "toggle":
+                                        result = await self.ha_agent.toggle(entity_id)
+                                    elif action == "open_cover":
+                                        result = await self.ha_agent.open_cover(entity_id)
+                                    elif action == "close_cover":
+                                        result = await self.ha_agent.close_cover(entity_id)
+                                    elif action == "set_cover_position":
+                                        pos = int(fc.args.get("position", 50))
+                                        result = await self.ha_agent.set_cover_position(entity_id, pos)
+                                    else:
+                                        result = {"error": f"Unknown action: {action}"}
+
+                                    if "error" in result:
+                                        result_str = f"Failed: {result['error']}"
+                                    else:
+                                        result_str = f"Successfully executed {action} on {entity_id}."
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
                         if function_responses:
                             await self.session.send_tool_response(function_responses=function_responses)
                 
@@ -1111,6 +1251,14 @@ class AudioLoop:
 
                     self.audio_in_queue = asyncio.Queue()
                     self.out_queue = asyncio.Queue(maxsize=10)
+
+                    # Pre-fetch Home Assistant entities
+                    if self.ha_agent.configured:
+                        try:
+                            await self.ha_agent.get_states()
+                            print(f"[ADA] Loaded {len(self.ha_agent.entities)} Home Assistant entities")
+                        except Exception as e:
+                            print(f"[ADA] Failed to fetch HA entities: {e}")
 
                     tg.create_task(self.send_realtime())
                     tg.create_task(self.listen_audio())
