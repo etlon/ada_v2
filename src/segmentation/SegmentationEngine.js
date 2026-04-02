@@ -1,6 +1,6 @@
 import { pipeline, SamModel, AutoProcessor, RawImage } from '@huggingface/transformers';
 
-const GROUNDING_DINO_MODEL = 'onnx-community/grounding-dino-base-ONNX';
+const GROUNDING_DINO_MODEL = 'onnx-community/grounding-dino-tiny-ONNX';
 const SAM_MODEL = 'Xenova/slimsam-77-uniform';
 
 class SegmentationEngine {
