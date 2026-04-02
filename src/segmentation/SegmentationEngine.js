@@ -77,19 +77,43 @@ class SegmentationEngine {
                 inputs.reshaped_input_sizes
             );
 
+            console.log('[SEG] masks structure:', masks, 'pred_masks shape:', outputs.pred_masks.dims);
+
             // iou_scores shape: [1, 1, 3] for single box input → flat [3] scores
-            // masks[0] has 3 mask candidates, pick the best by IoU score
             const scores = outputs.iou_scores.data;
             let bestIdx = 0;
             for (let i = 1; i < 3; i++) {
                 if (scores[i] > scores[bestIdx]) bestIdx = i;
             }
 
+            // post_process_masks may return different structures depending on version
+            // Try to extract the best mask tensor
+            let bestMask;
+            if (masks[0] && masks[0][bestIdx]) {
+                bestMask = masks[0][bestIdx];
+            } else if (masks[0] && masks[0].dims) {
+                // Single tensor with shape [num_masks, H, W] — slice it
+                bestMask = masks[0];
+            } else {
+                // Fallback: use pred_masks directly (shape [1, 1, 3, H, W])
+                const pm = outputs.pred_masks;
+                const [b, p, n, h, w] = pm.dims;
+                const maskSize = h * w;
+                const offset = bestIdx * maskSize;
+                const maskData = new Uint8Array(maskSize);
+                for (let i = 0; i < maskSize; i++) {
+                    maskData[i] = pm.data[offset + i] > 0 ? 1 : 0;
+                }
+                bestMask = { data: maskData, dims: [h, w] };
+            }
+
+            console.log('[SEG] bestMask:', bestMask?.dims || 'no dims', 'data length:', bestMask?.data?.length);
+
             results.push({
                 label: det.label,
                 score: det.score,
                 box: det.box,
-                mask: masks[0][bestIdx],
+                mask: bestMask,
                 color,
             });
         }

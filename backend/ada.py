@@ -1426,7 +1426,8 @@ class AudioLoop:
                                         if not matched:
                                             result_str = f"Camera '{camera}' not found. Available: {', '.join(self.frigate_cameras)}"
                                         else:
-                                            snapshot_url = f"{self.frigate_url}/api/{matched}/latest.jpg"
+                                            # Use proxy URL so browser can access from HTTPS context
+                                            snapshot_url = f"/api/camera/{matched}/snapshot"
                                             print(f"[ADA DEBUG] [CAMERA] Matched '{camera}' -> '{matched}', URL: {snapshot_url}")
                                             if self.on_web_data:
                                                 self.on_web_data({

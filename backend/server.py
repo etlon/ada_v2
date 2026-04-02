@@ -141,6 +141,24 @@ async def startup_event():
 async def status():
     return {"status": "running", "service": "A.D.A Backend"}
 
+@app.get("/api/camera/{camera_name}/snapshot")
+async def camera_snapshot(camera_name: str):
+    """Proxy Frigate snapshots to avoid mixed content issues."""
+    import aiohttp
+    from fastapi.responses import Response
+    frigate_url = os.getenv("FRIGATE_URL", "").rstrip("/")
+    if not frigate_url:
+        return Response(content=b"", status_code=503)
+    try:
+        async with aiohttp.ClientSession() as sess:
+            async with sess.get(f"{frigate_url}/api/{camera_name}/latest.jpg", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                if resp.status == 200:
+                    data = await resp.read()
+                    return Response(content=data, media_type="image/jpeg")
+                return Response(content=b"", status_code=resp.status)
+    except Exception:
+        return Response(content=b"", status_code=502)
+
 # Serve frontend static files in Docker/production mode
 FRONTEND_DIR = Path(__file__).resolve().parent.parent / "dist"
 if FRONTEND_DIR.is_dir():
