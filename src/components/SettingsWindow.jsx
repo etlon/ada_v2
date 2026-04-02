@@ -43,6 +43,8 @@ const SettingsWindow = ({
 }) => {
     const [permissions, setPermissions] = useState({});
     const [faceAuthEnabled, setFaceAuthEnabled] = useState(false);
+    const [systemPrompt, setSystemPrompt] = useState('');
+    const [promptDirty, setPromptDirty] = useState(false);
 
     useEffect(() => {
         // Request initial permissions
@@ -56,6 +58,10 @@ const SettingsWindow = ({
                 if (typeof settings.face_auth_enabled !== 'undefined') {
                     setFaceAuthEnabled(settings.face_auth_enabled);
                     localStorage.setItem('face_auth_enabled', settings.face_auth_enabled);
+                }
+                if (typeof settings.system_prompt !== 'undefined') {
+                    setSystemPrompt(settings.system_prompt);
+                    setPromptDirty(false);
                 }
             }
         };
@@ -214,6 +220,29 @@ const SettingsWindow = ({
                         />
                     </button>
                 </div>
+            </div>
+
+            {/* System Prompt Section */}
+            <div className="mb-6">
+                <h3 className="text-cyan-400 font-bold mb-2 text-xs uppercase tracking-wider opacity-80">System Prompt</h3>
+                <textarea
+                    value={systemPrompt}
+                    onChange={(e) => { setSystemPrompt(e.target.value); setPromptDirty(true); }}
+                    placeholder="Leave empty for default ADA personality..."
+                    rows={4}
+                    className="w-full bg-gray-900 border border-cyan-800 rounded p-2 text-xs text-cyan-100 focus:border-cyan-400 outline-none resize-y"
+                />
+                {promptDirty && (
+                    <button
+                        onClick={() => {
+                            socket.emit('update_settings', { system_prompt: systemPrompt });
+                            setPromptDirty(false);
+                        }}
+                        className="mt-2 w-full bg-cyan-600 hover:bg-cyan-500 text-black font-bold text-xs py-1.5 rounded transition-colors"
+                    >
+                        Apply & Restart Session
+                    </button>
+                )}
             </div>
 
             {/* Tool Permissions Section */}

@@ -76,7 +76,8 @@ DEFAULT_SETTINGS = {
     },
     "printers": [], # List of {host, port, name, type}
     "kasa_devices": [], # List of {ip, alias, model}
-    "camera_flipped": False # Invert cursor horizontal direction
+    "camera_flipped": False, # Invert cursor horizontal direction
+    "system_prompt": ""  # Empty = use default
 }
 
 SETTINGS = DEFAULT_SETTINGS.copy()
@@ -302,7 +303,8 @@ async def start_audio(sid, data=None):
 
             input_device_index=device_index,
             input_device_name=device_name,
-            kasa_agent=kasa_agent
+            kasa_agent=kasa_agent,
+            system_prompt=SETTINGS.get("system_prompt") or None
         )
         print("AudioLoop initialized successfully.")
 
@@ -978,6 +980,18 @@ async def update_settings(sid, data):
     if "camera_flipped" in data:
         SETTINGS["camera_flipped"] = data["camera_flipped"]
         print(f"[SERVER] Camera flip set to: {data['camera_flipped']}")
+
+    if "system_prompt" in data:
+        SETTINGS["system_prompt"] = data["system_prompt"]
+        print(f"[SERVER] System prompt updated ({len(data['system_prompt'])} chars)")
+        # Restart audio loop with new prompt
+        if audio_loop:
+            print("[SERVER] Restarting audio loop with new system prompt...")
+            audio_loop.stop()
+            # Wait briefly for cleanup
+            await asyncio.sleep(0.5)
+            # Re-trigger start_audio to rebuild with new prompt
+            await start_audio(sid)
 
     save_settings()
     # Broadcast new full settings

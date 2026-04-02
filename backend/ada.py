@@ -247,26 +247,29 @@ ha_get_state_tool = {
 
 tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool, ha_list_entities_tool, ha_control_tool, ha_get_state_tool] + tools_list[0]['function_declarations'][1:]}]
 
-# --- CONFIG UPDATE: Enabled Transcription ---
-config = types.LiveConnectConfig(
-    response_modalities=["AUDIO"],
-    # We switch these from [] to {} to enable them with default settings
-    output_audio_transcription={}, 
-    input_audio_transcription={},
-    system_instruction="Your name is Ada, which stands for Advanced Design Assistant. "
-        "You have a witty and charming personality. "
-        "Your creator is Naz, and you address him as 'Sir'. "
-        "When answering, respond using complete and concise sentences to keep a quick pacing and keep the conversation flowing. "
-        "You have a fun personality.",
-    tools=tools,
-    speech_config=types.SpeechConfig(
-        voice_config=types.VoiceConfig(
-            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                voice_name="Kore"
+DEFAULT_SYSTEM_PROMPT = (
+    "Your name is Ada, which stands for Advanced Design Assistant. "
+    "You have a witty and charming personality. "
+    "Your creator is Naz, and you address him as 'Sir'. "
+    "When answering, respond using complete and concise sentences to keep a quick pacing and keep the conversation flowing. "
+    "You have a fun personality."
+)
+
+def build_config(system_prompt=None):
+    return types.LiveConnectConfig(
+        response_modalities=["AUDIO"],
+        output_audio_transcription={},
+        input_audio_transcription={},
+        system_instruction=system_prompt or DEFAULT_SYSTEM_PROMPT,
+        tools=tools,
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                    voice_name="Kore"
+                )
             )
         )
     )
-)
 
 pya = pyaudio.PyAudio()
 
@@ -277,8 +280,9 @@ from printer_agent import PrinterAgent
 from homeassistant_agent import HomeAssistantAgent
 
 class AudioLoop:
-    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, on_device_update=None, on_error=None, input_device_index=None, input_device_name=None, output_device_index=None, kasa_agent=None):
+    def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, on_device_update=None, on_error=None, input_device_index=None, input_device_name=None, output_device_index=None, kasa_agent=None, system_prompt=None):
         self.video_mode = video_mode
+        self.system_prompt = system_prompt
         self.on_audio_data = on_audio_data
         self.on_video_frame = on_video_frame
         self.on_cad_data = on_cad_data
@@ -1251,7 +1255,7 @@ class AudioLoop:
             try:
                 print(f"[ADA DEBUG] [CONNECT] Connecting to Gemini Live API...")
                 async with (
-                    client.aio.live.connect(model=MODEL, config=config) as session,
+                    client.aio.live.connect(model=MODEL, config=build_config(self.system_prompt)) as session,
                     asyncio.TaskGroup() as tg,
                 ):
                     self.session = session
