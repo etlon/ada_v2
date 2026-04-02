@@ -543,6 +543,9 @@ function App() {
 
 
         // Get All Media Devices (Microphones, Speakers, Webcams)
+        if (!navigator.mediaDevices) {
+            console.warn('mediaDevices not available (requires HTTPS or localhost)');
+        } else {
         navigator.mediaDevices.enumerateDevices().then(devs => {
             const audioInputs = devs.filter(d => d.kind === 'audioinput');
             const audioOutputs = devs.filter(d => d.kind === 'audiooutput');
@@ -576,6 +579,7 @@ function App() {
                 setSelectedWebcamId(videoInputs[0].deviceId);
             }
         });
+        } // end mediaDevices guard
 
         // Initialize Hand Landmarker
         const initHandLandmarker = async () => {
