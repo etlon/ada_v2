@@ -245,7 +245,54 @@ ha_get_state_tool = {
     }
 }
 
-tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool, ha_list_entities_tool, ha_control_tool, ha_get_state_tool] + tools_list[0]['function_declarations'][1:]}]
+set_reminder_tool = {
+    "name": "set_reminder",
+    "description": "Sets a reminder that will notify the user after a specified delay. Use when the user says 'remind me in X minutes/hours about Y'.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "message": {
+                "type": "STRING",
+                "description": "The reminder message to display when the time is up."
+            },
+            "minutes": {
+                "type": "INTEGER",
+                "description": "Number of minutes to wait. Default 0."
+            },
+            "hours": {
+                "type": "INTEGER",
+                "description": "Number of hours to wait. Default 0."
+            }
+        },
+        "required": ["message"]
+    }
+}
+
+list_reminders_tool = {
+    "name": "list_reminders",
+    "description": "Lists all pending reminders.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {},
+    }
+}
+
+cancel_reminder_tool = {
+    "name": "cancel_reminder",
+    "description": "Cancels a pending reminder by its ID.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "reminder_id": {
+                "type": "INTEGER",
+                "description": "The ID of the reminder to cancel."
+            }
+        },
+        "required": ["reminder_id"]
+    }
+}
+
+tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool, ha_list_entities_tool, ha_control_tool, ha_get_state_tool, set_reminder_tool, list_reminders_tool, cancel_reminder_tool] + tools_list[0]['function_declarations'][1:]}]
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are JARVIS — a highly intelligent, calm, and composed AI assistant. "
@@ -283,6 +330,7 @@ from web_agent import WebAgent
 from kasa_agent import KasaAgent
 from printer_agent import PrinterAgent
 from homeassistant_agent import HomeAssistantAgent
+from reminder_agent import ReminderAgent
 
 class AudioLoop:
     def __init__(self, video_mode=DEFAULT_MODE, on_audio_data=None, on_video_frame=None, on_cad_data=None, on_web_data=None, on_transcription=None, on_tool_confirmation=None, on_cad_status=None, on_cad_thought=None, on_project_update=None, on_device_update=None, on_error=None, input_device_index=None, input_device_name=None, output_device_index=None, kasa_agent=None, system_prompt=None):
@@ -334,6 +382,7 @@ class AudioLoop:
         self.kasa_agent = kasa_agent if kasa_agent else KasaAgent()
         self.printer_agent = PrinterAgent()
         self.ha_agent = HomeAssistantAgent()
+        self.reminder_agent = ReminderAgent()
 
         self.send_text_task = None
         self.stop_event = asyncio.Event()
@@ -728,7 +777,7 @@ class AudioLoop:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad", "ha_list_entities", "ha_control", "ha_get_state"]:
+                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad", "ha_list_entities", "ha_control", "ha_get_state", "set_reminder", "list_reminders", "cancel_reminder"]:
                                 prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
                                 
                                 # Check Permissions (Default to True if not set)
@@ -1199,9 +1248,47 @@ class AudioLoop:
                                     )
                                     function_responses.append(function_response)
 
+                                elif fc.name == "set_reminder":
+                                    message = fc.args["message"]
+                                    minutes = int(fc.args.get("minutes", 0))
+                                    hours = int(fc.args.get("hours", 0))
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'set_reminder' msg='{message}' {hours}h {minutes}m")
+                                    result = await self.reminder_agent.add_reminder(message, minutes=minutes, hours=hours)
+                                    if "error" in result:
+                                        result_str = result["error"]
+                                    else:
+                                        result_str = f"Reminder set: '{message}' in {result['delay']} (at {result['fire_at']})"
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "list_reminders":
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'list_reminders'")
+                                    reminders = self.reminder_agent.list_reminders()
+                                    if not reminders:
+                                        result_str = "No pending reminders."
+                                    else:
+                                        lines = [f"- #{r['id']}: '{r['message']}' at {r['fire_at']}" for r in reminders]
+                                        result_str = f"{len(reminders)} pending reminders:\n" + "\n".join(lines)
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "cancel_reminder":
+                                    rid = int(fc.args["reminder_id"])
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'cancel_reminder' id={rid}")
+                                    success = self.reminder_agent.cancel_reminder(rid)
+                                    result_str = f"Reminder #{rid} cancelled." if success else f"Reminder #{rid} not found."
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
                         if function_responses:
                             await self.session.send_tool_response(function_responses=function_responses)
-                
+
                 # Turn/Response Loop Finished
                 self.flush_chat()
 

@@ -389,6 +389,15 @@ function App() {
             console.error("Socket Error:", data);
             addMessage('System', `Error: ${data.msg}`);
         });
+        socket.on('reminder', (data) => {
+            addMessage('Reminder', data.message);
+            // Browser notification if permitted
+            if (Notification.permission === 'granted') {
+                new Notification('Erinnerung', { body: data.message });
+            } else if (Notification.permission !== 'denied') {
+                Notification.requestPermission();
+            }
+        });
         socket.on('cad_data', (data) => {
             console.log("Received CAD Data:", data);
             setCadData(data);
@@ -662,6 +671,7 @@ function App() {
             socket.off('slicing_progress');
             socket.off('print_status_update');
             socket.off('error');
+            socket.off('reminder');
 
             stopMicVisualizer();
             stopVideo();

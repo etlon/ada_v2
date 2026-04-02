@@ -72,7 +72,10 @@ DEFAULT_SETTINGS = {
         "list_projects": True,
         "ha_list_entities": True,
         "ha_control": True,
-        "ha_get_state": True
+        "ha_get_state": True,
+        "set_reminder": True,
+        "list_reminders": True,
+        "cancel_reminder": True
     },
     "printers": [], # List of {host, port, name, type}
     "kasa_devices": [], # List of {ip, alias, model}
@@ -285,6 +288,12 @@ async def start_audio(sid, data=None):
         print(f"Sending Error to frontend: {msg}")
         asyncio.create_task(sio.emit('error', {'msg': msg}))
 
+    # Callback for reminder notifications
+    def on_reminder(reminder_id, message):
+        print(f"[REMINDER] Firing reminder #{reminder_id}: {message}")
+        asyncio.create_task(sio.emit('reminder', {'id': reminder_id, 'message': message}))
+        asyncio.create_task(sio.emit('transcription', {'sender': 'System', 'text': f'Erinnerung: {message}'}))
+
     # Initialize ADA
     try:
         print(f"Initializing AudioLoop with device_index={device_index}")
@@ -307,6 +316,9 @@ async def start_audio(sid, data=None):
             system_prompt=SETTINGS.get("system_prompt") or None
         )
         print("AudioLoop initialized successfully.")
+
+        # Set reminder callback
+        audio_loop.reminder_agent.set_callback(on_reminder)
 
         # Apply current permissions
         audio_loop.update_permissions(SETTINGS["tool_permissions"])
