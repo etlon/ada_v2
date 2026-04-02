@@ -35,13 +35,12 @@ class SegmentationEngine {
                 }
             };
 
-            if (this.onProgress) this.onProgress({ model: 'Grounding DINO Base', progress: 0, status: 'downloading' });
+            if (this.onProgress) this.onProgress({ model: 'Grounding DINO', progress: 0, status: 'downloading' });
             this.detector = await pipeline('zero-shot-object-detection', GROUNDING_DINO_MODEL, {
                 device: 'webgpu',
-                dtype: 'fp32',
-                progress_callback: makeProgressCb('Grounding DINO Base'),
+                progress_callback: makeProgressCb('Grounding DINO'),
             });
-            if (this.onProgress) this.onProgress({ model: 'Grounding DINO Base', progress: 100 });
+            if (this.onProgress) this.onProgress({ model: 'Grounding DINO', progress: 100 });
 
             if (this.onProgress) this.onProgress({ model: 'SlimSAM', progress: 0, status: 'downloading' });
             this.samModel = await SamModel.from_pretrained(SAM_MODEL, {
@@ -69,13 +68,23 @@ class SegmentationEngine {
 
         const { threshold = 0.15, color = 'rgba(255, 255, 0, 0.4)' } = options;
 
-        const labels = textPrompt.toLowerCase().endsWith('.')
-            ? [textPrompt.toLowerCase()]
-            : [textPrompt.toLowerCase() + '.'];
+        // Grounding DINO needs lowercase labels ending with a period
+        const label = textPrompt.toLowerCase().trim();
+        const labels = label.endsWith('.') ? [label] : [label + '.'];
 
+        console.log('[SEG] Image URL:', imageUrl);
         console.log('[SEG] Detecting with labels:', labels, 'threshold:', threshold);
-        const detections = await this.detector(imageUrl, labels, { threshold });
-        console.log('[SEG] Detections:', detections);
+
+        // Try multiple thresholds if needed
+        let detections = await this.detector(imageUrl, labels, { threshold });
+        console.log('[SEG] Detections at threshold', threshold, ':', JSON.stringify(detections));
+
+        // If nothing found, try with even lower threshold
+        if ((!detections || detections.length === 0) && threshold > 0.05) {
+            console.log('[SEG] Retrying with lower threshold 0.05...');
+            detections = await this.detector(imageUrl, labels, { threshold: 0.05 });
+            console.log('[SEG] Detections at threshold 0.05:', JSON.stringify(detections));
+        }
 
         if (!detections || detections.length === 0) {
             return { masks: [], message: `Nothing matching "${textPrompt}" found.` };

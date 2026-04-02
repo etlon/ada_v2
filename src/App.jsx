@@ -815,10 +815,15 @@ function App() {
             if (camera && currentFeed) {
                 imageUrl = `${currentFeed.snapshot_url}?t=${Date.now()}`;
             } else {
-                // Webcam: capture current frame to blob URL
-                const canvas = transmissionCanvasRef.current;
-                if (canvas) {
-                    const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.9));
+                // Webcam: capture full-res frame from video element
+                const video = videoRef.current;
+                if (video && video.videoWidth > 0) {
+                    const captureCanvas = document.createElement('canvas');
+                    captureCanvas.width = video.videoWidth;
+                    captureCanvas.height = video.videoHeight;
+                    captureCanvas.getContext('2d').drawImage(video, 0, 0);
+                    console.log('[SEG] Captured webcam frame:', video.videoWidth, 'x', video.videoHeight);
+                    const blob = await new Promise(r => captureCanvas.toBlob(r, 'image/jpeg', 0.95));
                     blobUrl = URL.createObjectURL(blob);
                     imageUrl = blobUrl;
                 }
