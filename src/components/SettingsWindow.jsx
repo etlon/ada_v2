@@ -16,6 +16,9 @@ const TOOLS = [
     { id: 'discover_printers', label: 'Discover Printers' },
     { id: 'print_stl', label: 'Print 3D Model' },
     { id: 'iterate_cad', label: 'Iterate CAD' },
+    { id: 'ha_list_entities', label: 'HA List Entities' },
+    { id: 'ha_control', label: 'HA Control' },
+    { id: 'ha_get_state', label: 'HA Get State' },
 ];
 
 const SettingsWindow = ({
@@ -33,6 +36,8 @@ const SettingsWindow = ({
     setCursorSensitivity,
     isCameraFlipped,
     setIsCameraFlipped,
+    volume,
+    setVolume,
     handleFileUpload,
     onClose
 }) => {
@@ -143,6 +148,23 @@ const SettingsWindow = ({
                         </option>
                     ))}
                 </select>
+            </div>
+
+            {/* Volume Section */}
+            <div className="mb-4">
+                <div className="flex justify-between mb-2">
+                    <h3 className="text-cyan-400 font-bold text-xs uppercase tracking-wider opacity-80">Volume</h3>
+                    <span className="text-xs text-cyan-500">{Math.round(volume * 100)}%</span>
+                </div>
+                <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={volume}
+                    onChange={(e) => setVolume(parseFloat(e.target.value))}
+                    className="w-full accent-cyan-400 cursor-pointer h-1 bg-gray-800 rounded-lg appearance-none"
+                />
             </div>
 
             {/* Webcam Section */}

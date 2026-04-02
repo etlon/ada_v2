@@ -141,6 +141,10 @@ function App() {
     const micProcessorRef = useRef(null);
     const playbackCtxRef = useRef(null);
     const playbackNextTimeRef = useRef(0);
+    const playbackGainRef = useRef(null);
+
+    // Volume control (0-1, persisted)
+    const [volume, setVolume] = useState(() => parseFloat(localStorage.getItem('adaVolume') || '0.5'));
 
     // Video Refs
     const videoRef = useRef(null);
@@ -661,6 +665,14 @@ function App() {
         };
     }, []);
 
+    // Persist volume and update gain node
+    useEffect(() => {
+        localStorage.setItem('adaVolume', volume.toString());
+        if (playbackGainRef.current) {
+            playbackGainRef.current.gain.value = volume;
+        }
+    }, [volume]);
+
     // Initial check in case we are already connected (fix race condition)
     useEffect(() => {
         if (socket.connected) {
@@ -703,6 +715,10 @@ function App() {
         if (!playbackCtxRef.current || playbackCtxRef.current.state === 'closed') {
             playbackCtxRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
             playbackNextTimeRef.current = 0;
+            // Create persistent gain node for volume control
+            playbackGainRef.current = playbackCtxRef.current.createGain();
+            playbackGainRef.current.gain.value = volume;
+            playbackGainRef.current.connect(playbackCtxRef.current.destination);
         }
         const ctx = playbackCtxRef.current;
 
@@ -730,7 +746,7 @@ function App() {
             ctx.setSinkId(selectedSpeakerId).catch(() => {});
         }
 
-        source.connect(ctx.destination);
+        source.connect(playbackGainRef.current);
 
         // Schedule seamless playback
         const now = ctx.currentTime;
@@ -1629,6 +1645,8 @@ function App() {
                         setCursorSensitivity={setCursorSensitivity}
                         isCameraFlipped={isCameraFlipped}
                         setIsCameraFlipped={setIsCameraFlipped}
+                        volume={volume}
+                        setVolume={setVolume}
                         handleFileUpload={handleFileUpload}
                         onClose={() => setShowSettings(false)}
                     />
