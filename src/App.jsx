@@ -553,10 +553,18 @@ function App() {
 
 
         // Get All Media Devices (Microphones, Speakers, Webcams)
+        // Request mic permission first so enumerateDevices returns real labels/IDs
         if (!navigator.mediaDevices) {
             console.warn('mediaDevices not available (requires HTTPS or localhost)');
         } else {
-        navigator.mediaDevices.enumerateDevices().then(devs => {
+        navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+            // Permission granted — stop the temporary stream
+            stream.getTracks().forEach(t => t.stop());
+            return navigator.mediaDevices.enumerateDevices();
+        }).catch(() => {
+            // Permission denied — still try to enumerate with limited info
+            return navigator.mediaDevices.enumerateDevices();
+        }).then(devs => {
             const audioInputs = devs.filter(d => d.kind === 'audioinput');
             const audioOutputs = devs.filter(d => d.kind === 'audiooutput');
             const videoInputs = devs.filter(d => d.kind === 'videoinput');
