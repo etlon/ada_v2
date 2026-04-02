@@ -69,7 +69,10 @@ DEFAULT_SETTINGS = {
         "read_file": True,
         "create_project": True,
         "switch_project": True,
-        "list_projects": True
+        "list_projects": True,
+        "ha_list_entities": True,
+        "ha_control": True,
+        "ha_get_state": True
     },
     "printers": [], # List of {host, port, name, type}
     "kasa_devices": [], # List of {ip, alias, model}

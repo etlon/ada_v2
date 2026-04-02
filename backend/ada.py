@@ -1148,11 +1148,13 @@ class AudioLoop:
                                     target = fc.args["target"]
                                     action = fc.args["action"]
                                     print(f"[ADA DEBUG] [TOOL] Tool Call: 'ha_control' target={target} action={action}")
+                                    print(f"[ADA DEBUG] [HA] configured={self.ha_agent.configured}, url={self.ha_agent.base_url}")
 
                                     # Resolve entity
                                     if not self.ha_agent.entities:
                                         await self.ha_agent.get_states()
                                     entity_id = self.ha_agent.resolve_entity(target) or target
+                                    print(f"[ADA DEBUG] [HA] Resolved '{target}' -> '{entity_id}'")
 
                                     kwargs = {}
                                     if fc.args.get("brightness") is not None:
@@ -1178,6 +1180,7 @@ class AudioLoop:
                                     else:
                                         result = {"error": f"Unknown action: {action}"}
 
+                                    print(f"[ADA DEBUG] [HA] Result: {result}")
                                     if "error" in result:
                                         result_str = f"Failed: {result['error']}"
                                     else:
