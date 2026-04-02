@@ -76,7 +76,6 @@ const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], trackedObject
             setScale(prevScale => {
                 const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, prevScale * factor));
                 const ratio = newScale / prevScale;
-                // Zoom towards viewport center
                 const cx = rect.width / 2;
                 const cy = rect.height / 2;
                 setTranslate(prev => {
@@ -85,6 +84,27 @@ const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], trackedObject
                     return clampTranslate(newTx, newTy, newScale, rect.width, rect.height);
                 });
                 return newScale;
+            });
+            return;
+        }
+
+        // Handle center: pan to annotation without changing zoom
+        if (zoomTarget.action === 'center') {
+            const rect = viewportRef.current?.getBoundingClientRect();
+            if (!rect || !zoomTarget.label || allLabeled.length === 0) return;
+            const targetLabel = zoomTarget.label.toLowerCase();
+            const match = allLabeled.find(a => a.label && a.label.toLowerCase().includes(targetLabel))
+                || allLabeled.find(a => a.label && targetLabel.includes(a.label.toLowerCase()));
+            if (!match) return;
+
+            setScale(prevScale => {
+                const s = prevScale < 1.01 ? 2 : prevScale; // auto-zoom to 2x if at 1x
+                const centerX = (match.x + match.w / 2) * rect.width;
+                const centerY = (match.y + match.h / 2) * rect.height;
+                const newTx = rect.width / 2 - centerX * s;
+                const newTy = rect.height / 2 - centerY * s;
+                setTranslate(clampTranslate(newTx, newTy, s, rect.width, rect.height));
+                return s;
             });
             return;
         }

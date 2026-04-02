@@ -478,6 +478,8 @@ function App() {
                     setCameraZoom({ label: data.label });
                 } else if (data.action === 'in' || data.action === 'out') {
                     setCameraZoom({ action: data.action, factor: data.factor || 2.0, _t: Date.now() });
+                } else if (data.action === 'center' && data.label) {
+                    setCameraZoom({ action: 'center', label: data.label, _t: Date.now() });
                 }
                 return;
             }

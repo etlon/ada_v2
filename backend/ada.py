@@ -348,17 +348,17 @@ annotate_camera_tool = {
 
 zoom_camera_tool = {
     "name": "zoom_camera",
-    "description": "Controls the camera zoom level. Actions: 'zoom' to zoom into an annotation by label, 'in' to zoom in further (e.g. 'zoom mehr rein'), 'out' to zoom out a step, 'reset' to return to full view. The 'factor' parameter controls how much to zoom (default 2.0). There is no maximum — you can always zoom further in.",
+    "description": "Controls the camera zoom and pan. Actions: 'zoom' to zoom into an annotation by label, 'in' to zoom in further, 'out' to zoom out a step, 'center' to center the view on an annotation (keeps current zoom level), 'reset' to return to full view. There is no maximum — you can always zoom further in.",
     "parameters": {
         "type": "OBJECT",
         "properties": {
             "action": {
                 "type": "STRING",
-                "description": "'zoom' to zoom into a labeled annotation, 'in' to zoom in further, 'out' to zoom out a step, 'reset' to return to full view."
+                "description": "'zoom' to zoom into a labeled annotation, 'in' to zoom in further, 'out' to zoom out a step, 'center' to center on an annotation without changing zoom level, 'reset' to return to full view."
             },
             "label": {
                 "type": "STRING",
-                "description": "The label of the annotation to zoom into. Required when action is 'zoom'."
+                "description": "The label of the annotation to zoom into or center on. Required when action is 'zoom' or 'center'."
             },
             "factor": {
                 "type": "NUMBER",
@@ -1590,6 +1590,10 @@ class AudioLoop:
                                         if self.on_web_data:
                                             self.on_web_data({"type": "camera_zoom", "action": "out", "factor": factor})
                                         result_str = f"Zoomed out by {factor}x."
+                                    elif action == "center":
+                                        if self.on_web_data:
+                                            self.on_web_data({"type": "camera_zoom", "action": "center", "label": label})
+                                        result_str = f"Centered view on '{label}'."
                                     else:
                                         if self.on_web_data:
                                             self.on_web_data({"type": "camera_zoom", "action": "zoom", "label": label})
