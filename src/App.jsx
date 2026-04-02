@@ -1660,6 +1660,27 @@ function App() {
                             className="absolute inset-0 w-full h-full opacity-80"
                             style={{ transform: isCameraFlipped ? 'scaleX(-1)' : 'none' }}
                         />
+
+                        {/* Annotations overlay on webcam */}
+                        {!cameraFeed && cameraAnnotations.length > 0 && (
+                            <svg className="absolute inset-0 w-full h-full pointer-events-none z-20" viewBox="0 0 1 1" preserveAspectRatio="none">
+                                {cameraAnnotations.map((ann, i) => (
+                                    ann.type === 'fill' ? (
+                                        <rect key={i} x={ann.x} y={ann.y} width={ann.w} height={ann.h} fill={ann.color} opacity={0.3} />
+                                    ) : (
+                                        <g key={i}>
+                                            <rect x={ann.x} y={ann.y} width={ann.w} height={ann.h} fill="none" stroke={ann.color} strokeWidth={0.003} />
+                                            {ann.label && (
+                                                <g>
+                                                    <rect x={ann.x} y={Math.max(0, ann.y - 0.03)} width={Math.min(ann.label.length * 0.012 + 0.01, 0.3)} height={0.028} fill={ann.color} opacity={0.8} />
+                                                    <text x={ann.x + 0.005} y={Math.max(0.02, ann.y - 0.008)} fill="white" fontSize={0.018} fontFamily="monospace" fontWeight="bold">{ann.label}</text>
+                                                </g>
+                                            )}
+                                        </g>
+                                    )
+                                ))}
+                            </svg>
+                        )}
                     </div>
                 </div>
 
