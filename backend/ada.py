@@ -873,7 +873,7 @@ class AudioLoop:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad", "ha_list_entities", "ha_control", "ha_get_state", "set_reminder", "list_reminders", "cancel_reminder", "show_camera", "stop_camera", "annotate_camera"]:
+                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad", "ha_list_entities", "ha_control", "ha_get_state", "set_reminder", "list_reminders", "cancel_reminder", "show_camera", "stop_camera", "annotate_camera", "calculate"]:
                                 prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
                                 
                                 # Check Permissions (Default to True if not set)
@@ -1444,6 +1444,52 @@ class AudioLoop:
                                             "annotations": annotations,
                                         })
                                     result_str = f"Drew {len(annotations)} annotations on the camera feed."
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "calculate":
+                                    expression = fc.args.get("expression", "")
+                                    try:
+                                        from sympy import (
+                                            sqrt, sin, cos, tan, asin, acos, atan,
+                                            log, exp, pi, E, oo, I, symbols, solve, diff,
+                                            integrate, simplify, expand, factor, limit,
+                                            Rational, Abs, ceiling, floor, gcd, lcm,
+                                            Matrix, summation, product
+                                        )
+                                        from sympy.parsing.sympy_parser import parse_expr
+                                        sx, sy, sz, sn, sk = symbols('x y z n k')
+                                        allowed_locals = {
+                                            "sqrt": sqrt, "sin": sin, "cos": cos, "tan": tan,
+                                            "asin": asin, "acos": acos, "atan": atan,
+                                            "log": log, "exp": exp, "pi": pi, "E": E,
+                                            "oo": oo, "I": I, "Abs": Abs,
+                                            "ceiling": ceiling, "floor": floor,
+                                            "gcd": gcd, "lcm": lcm,
+                                            "x": sx, "y": sy, "z": sz, "n": sn, "k": sk,
+                                            "solve": solve, "diff": diff, "integrate": integrate,
+                                            "simplify": simplify, "expand": expand, "factor": factor,
+                                            "limit": limit, "Rational": Rational,
+                                            "Matrix": Matrix, "summation": summation, "product": product,
+                                            "symbols": symbols,
+                                        }
+                                        safe_global_dict = {}
+                                        exec("from sympy import *", safe_global_dict)
+                                        safe_global_dict.pop("__builtins__", None)
+                                        result = parse_expr(
+                                            expression,
+                                            local_dict=allowed_locals,
+                                            global_dict=safe_global_dict,
+                                            transformations="all",
+                                        )
+                                        if hasattr(result, 'doit'):
+                                            result = result.doit()
+                                        result_str = f"Result: {result}"
+                                    except Exception as e:
+                                        result_str = f"Calculation error: {e}"
+
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": result_str}
                                     )
