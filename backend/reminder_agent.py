@@ -46,7 +46,10 @@ class ReminderAgent:
         await asyncio.sleep(delay)
         print(f"[REMINDER] Firing #{reminder_id}: '{message}'")
         if self.on_reminder:
-            self.on_reminder(reminder_id, message)
+            result = self.on_reminder(reminder_id, message)
+            # Support async callbacks
+            if asyncio.iscoroutine(result):
+                await result
         # Remove from active list
         self.reminders = [r for r in self.reminders if r["id"] != reminder_id]
 

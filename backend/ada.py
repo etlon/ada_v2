@@ -247,13 +247,13 @@ ha_get_state_tool = {
 
 set_reminder_tool = {
     "name": "set_reminder",
-    "description": "Sets a reminder that will notify the user after a specified delay. Use when the user says 'remind me in X minutes/hours about Y'.",
+    "description": "Sets a timed reminder. When the timer fires, the message is sent back to you as a system notification so you can act on it. This means you can schedule ANY action: 'Turn off the living room light', 'Check the print status', 'Show the garage camera'. Write the message as an instruction to yourself that you will execute when the reminder fires. For simple reminders just write what to tell the user.",
     "parameters": {
         "type": "OBJECT",
         "properties": {
             "message": {
                 "type": "STRING",
-                "description": "The reminder message to display when the time is up."
+                "description": "The instruction to execute when the timer fires. Examples: 'Remind the user about the meeting', 'Turn off the living room light using ha_control', 'Check the 3D print status'. Be specific about what action to take."
             },
             "minutes": {
                 "type": "INTEGER",

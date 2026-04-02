@@ -311,11 +311,20 @@ async def start_audio(sid, data=None):
         print(f"Sending Error to frontend: {msg}")
         asyncio.create_task(sio.emit('error', {'msg': msg}))
 
-    # Callback for reminder notifications
-    def on_reminder(reminder_id, message):
+    # Callback for reminder notifications — injects into Gemini session so it can act
+    async def on_reminder(reminder_id, message):
         print(f"[REMINDER] Firing reminder #{reminder_id}: {message}")
         asyncio.create_task(sio.emit('reminder', {'id': reminder_id, 'message': message}))
-        asyncio.create_task(sio.emit('transcription', {'sender': 'System', 'text': f'Erinnerung: {message}'}))
+        asyncio.create_task(sio.emit('transcription', {'sender': 'System', 'text': f'⏰ Erinnerung: {message}'}))
+        # Send to Gemini session so it can execute actions
+        if audio_loop and audio_loop.session:
+            try:
+                await audio_loop.session.send(
+                    input=f"System Notification — Scheduled Reminder #{reminder_id} fired: {message}\nExecute the described action now. If it's just a reminder, inform the user verbally.",
+                    end_of_turn=True
+                )
+            except Exception as e:
+                print(f"[REMINDER] Failed to send to Gemini session: {e}")
 
     # Initialize ADA
     try:
