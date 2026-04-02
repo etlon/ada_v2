@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-A.D.A / JARVIS is a voice-driven AI assistant powered by Google Gemini's multimodal Live API. It runs as an Electron desktop app or as a Dockerized web app (deployed on Unraid). Features include CAD generation, 3D printing, smart home control (Kasa + Home Assistant), web browsing, face authentication, and timed reminders.
+A.D.A / JARVIS is a voice-driven AI assistant powered by Google Gemini's multimodal Live API. It runs as an Electron desktop app or as a Dockerized web app (deployed on Unraid). Features include CAD generation, 3D printing, smart home control (Kasa + Home Assistant), web browsing, face authentication, timed reminders with tool actions, Frigate NVR camera feeds with live object tracking, and math computation.
 
 This is a fork of `nazirlouis/ada_v2`. The user's remote is `etlon/ada_v2`.
 
@@ -13,14 +13,15 @@ electron/main.js           — Electron host (desktop mode only)
 src/                       — React frontend (Vite + Tailwind CSS)
   App.jsx                  — Main app, socket.io, browser audio I/O, MediaPipe
   components/              — UI modules (Chat, CAD, Printer, Kasa, Browser, Auth, Settings)
+    CameraFeedWindow.jsx   — Frigate camera feed with pan-zoom, annotations, live tracking overlay
 backend/                   — Python backend (FastAPI + Socket.IO)
   server.py                — FastAPI server, Socket.IO events, agent orchestration
-  ada.py                   — Core Gemini live session (AudioLoop), tool dispatch
+  ada.py                   — Core Gemini live session (AudioLoop), tool dispatch, MQTT tracking
   cad_agent.py             — CAD generation & iteration via build123d
   printer_agent.py         — 3D printer control (OctoPrint/Moonraker)
   kasa_agent.py            — Kasa smart home device control
   homeassistant_agent.py   — Home Assistant REST API integration
-  reminder_agent.py        — Timed reminders via asyncio
+  reminder_agent.py        — Timed reminders via asyncio (supports async callbacks)
   web_agent.py             — Headless browser automation via Playwright
   authenticator.py         — Face authentication via MediaPipe
   project_manager.py       — File/project management
@@ -32,10 +33,10 @@ tests/                     — Pytest test suite
 ## Tech Stack
 
 - **Frontend:** React 18, Vite, Tailwind CSS, Three.js (STL viewer), Framer Motion, Socket.IO client, Web Audio API
-- **Backend:** Python, FastAPI, Socket.IO (async), Google GenAI SDK, aiohttp
+- **Backend:** Python, FastAPI, Socket.IO (async), Google GenAI SDK, aiohttp, aiomqtt
 - **Desktop:** Electron 28 (optional — app also runs as pure web app)
 - **AI:** Google Gemini Live API (multimodal — audio, video, screen share)
-- **Agents:** build123d (CAD), Playwright (web), python-kasa (smart home), Home Assistant REST API, OctoPrint/Moonraker (3D printing), MediaPipe (face/hand tracking), Frigate NVR (camera feeds), SymPy (math computation)
+- **Agents:** build123d (CAD), Playwright (web), python-kasa (smart home), Home Assistant REST API, OctoPrint/Moonraker (3D printing), MediaPipe (face/hand tracking), Frigate NVR (camera feeds + MQTT live tracking), SymPy (math computation)
 
 ## Audio Architecture
 
@@ -43,6 +44,8 @@ Audio I/O runs in the **browser**, not on the server:
 - **Mic capture:** Browser `getUserMedia` → resample to 16kHz mono PCM → `socket.emit('browser_audio')` → backend → Gemini
 - **Playback:** Gemini → backend → `socket.emit('audio_data')` → browser Web Audio API (with GainNode for volume control)
 - **Mute:** Stops sending audio chunks and freezes mic visualizer (via `isMutedRef`)
+- **Keepalive:** `send_realtime()` sends 100ms silence every 10s during idle to prevent Gemini from closing the connection
+- **Stability:** `AsyncTimeoutIterator` wraps `session.receive()` with 30s timeout for dead connection detection; non-blocking queue puts prevent pipeline stalls
 
 This enables headless Docker deployment — no pyaudio/sound card needed on the server.
 
@@ -55,7 +58,35 @@ Tools are defined in `ada.py` and dispatched in `AudioLoop.receive_audio()`. Add
 4. Add the `elif fc.name == "your_tool":` handler
 5. Add to `DEFAULT_SETTINGS["tool_permissions"]` in `server.py`
 
-Current tools: `generate_cad`, `iterate_cad`, `run_web_agent`, `control_light`, `list_smart_devices`, `ha_list_entities`, `ha_control`, `ha_get_state`, `set_reminder`, `list_reminders`, `cancel_reminder`, `discover_printers`, `print_stl`, `get_print_status`, `show_camera`, `stop_camera`, `annotate_camera`, `calculate`, file/project management tools.
+Current tools: `generate_cad`, `iterate_cad`, `run_web_agent`, `control_light`, `list_smart_devices`, `ha_list_entities`, `ha_control`, `ha_get_state`, `set_reminder`, `list_reminders`, `cancel_reminder`, `discover_printers`, `print_stl`, `get_print_status`, `show_camera`, `stop_camera`, `annotate_camera`, `zoom_camera`, `calculate`, file/project management tools.
+
+### Camera Tools
+
+- **`show_camera`** — Opens Frigate camera feed in the frontend, starts streaming snapshots to Gemini, and starts MQTT live object tracking
+- **`stop_camera`** — Stops camera stream and closes the frontend window (sends `camera_stop` event)
+- **`annotate_camera`** — Gemini draws bounding boxes/labels on the feed (normalized 0-1 coordinates)
+- **`zoom_camera`** — Controls camera zoom and pan:
+  - `action="zoom", label="..."` — Zoom into a labeled annotation/tracked object
+  - `action="in"` / `action="out"` — Relative zoom in/out with configurable `factor` (default 2x)
+  - `action="center", label="..."` — Pan to center an annotation without changing zoom level
+  - `action="reset"` — Return to full view
+- Frontend supports interactive pan-zoom: mouse wheel to zoom (1x-50x), drag to pan when zoomed
+
+### Frigate MQTT Live Object Tracking
+
+When a camera feed is active, the backend subscribes to `frigate/events` via MQTT:
+- Tracks objects (person, car, etc.) with bounding boxes in real-time
+- Normalizes pixel coordinates using camera detect resolution from Frigate config
+- Pushes `camera_tracked_objects` events to frontend via Socket.IO
+- Frontend renders tracked objects with dashed boxes, corner accents, color-coded by object type
+- TRK toggle button to show/hide tracking overlay
+- Tracked objects are zoomable via `zoom_camera`
+
+### Reminders with Tool Actions
+
+Reminders are not just notifications — when a reminder fires, its message is injected into the active Gemini session as a system notification. Gemini then executes the described action or informs the user:
+- "In 5 Minuten schalte das Licht aus" → Gemini sets reminder with actionable message → fires after 5 min → Gemini calls `ha_control`
+- "Erinnere mich in 10 Minuten an den Anruf" → Gemini sets reminder → fires → Gemini speaks the reminder
 
 ## Settings
 
@@ -104,6 +135,10 @@ GEMINI_API_KEY=your_key_here
 HA_URL=http://192.168.2.x:8123
 HA_TOKEN=your_long_lived_access_token
 FRIGATE_URL=http://192.168.2.x:5001
+MQTT_BROKER=192.168.2.91
+MQTT_PORT=1883
+MQTT_USER=
+MQTT_PASS=
 ```
 
 ## Docker (Unraid deployment)
@@ -122,7 +157,7 @@ docker compose up -d
 
 ### Compose environment variables
 ```
-GEMINI_API_KEY, HA_URL, HA_TOKEN, FRIGATE_URL, HOST (default 0.0.0.0), PORT (default 8000)
+GEMINI_API_KEY, HA_URL, HA_TOKEN, FRIGATE_URL, MQTT_BROKER (default 192.168.2.91), MQTT_PORT (default 1883), MQTT_USER, MQTT_PASS, HOST (default 0.0.0.0), PORT (default 8000)
 ```
 
 ## Key Conventions
@@ -134,6 +169,8 @@ GEMINI_API_KEY, HA_URL, HA_TOKEN, FRIGATE_URL, HOST (default 0.0.0.0), PORT (def
 - Electron imports are optional — app works in browser-only mode for Docker
 - `server.py` serves built frontend from `dist/` when present (production/Docker)
 - System prompt is configurable at runtime from the Settings UI
+- Camera feed events flow: `show_camera` → `camera_feed` (open window), `stop_camera` → `camera_stop` (close window)
+- All `out_queue` puts are non-blocking (`put_nowait`) to prevent audio pipeline stalls
 
 ## Ports
 
