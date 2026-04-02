@@ -294,13 +294,13 @@ cancel_reminder_tool = {
 
 show_camera_tool = {
     "name": "show_camera",
-    "description": "Shows a live camera feed from Frigate NVR. Provide the camera name, or omit to list available cameras.",
+    "description": "Shows a live camera feed from Frigate NVR. Provide the exact camera name from the available list, or omit to list available cameras. Always list cameras first if you don't know the exact name.",
     "parameters": {
         "type": "OBJECT",
         "properties": {
             "camera": {
                 "type": "STRING",
-                "description": "Camera name (e.g., 'front_door'). Omit to list all available cameras."
+                "description": "Exact Frigate camera name (lowercase, e.g., 'garage', 'terrasse'). Call without camera first to get the list."
             }
         },
     }
@@ -398,6 +398,7 @@ class AudioLoop:
         self.ha_agent = HomeAssistantAgent()
         self.reminder_agent = ReminderAgent()
         self.frigate_url = os.getenv("FRIGATE_URL", "").rstrip("/")
+        self.frigate_cameras = []  # Cached camera names
 
         self.send_text_task = None
         self.stop_event = asyncio.Event()
@@ -1309,31 +1310,33 @@ class AudioLoop:
                                         result_str = "Frigate is not configured. Set FRIGATE_URL in .env"
                                     elif not camera:
                                         # List available cameras
-                                        try:
-                                            import aiohttp
-                                            async with aiohttp.ClientSession() as sess:
-                                                async with sess.get(f"{self.frigate_url}/api/config", timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                                                    if resp.status == 200:
-                                                        config = await resp.json()
-                                                        cameras = list(config.get("cameras", {}).keys())
-                                                        result_str = f"Available cameras: {', '.join(cameras)}" if cameras else "No cameras found."
-                                                    else:
-                                                        result_str = f"Frigate API error: HTTP {resp.status}"
-                                        except Exception as e:
-                                            result_str = f"Failed to reach Frigate: {e}"
+                                        if self.frigate_cameras:
+                                            result_str = f"Available cameras: {', '.join(self.frigate_cameras)}"
+                                        else:
+                                            result_str = "No cameras found. Check FRIGATE_URL."
                                     else:
-                                        # Send live stream URL to frontend
-                                        stream_url = f"{self.frigate_url}/api/{camera}/latest.jpg"
-                                        live_url = f"{self.frigate_url}/live/webrtc/api/ws?src={camera}"
-                                        if self.on_web_data:
-                                            self.on_web_data({
-                                                "type": "camera_feed",
-                                                "camera": camera,
-                                                "stream_url": f"{self.frigate_url}/api/{camera}",
-                                                "snapshot_url": stream_url,
-                                                "frigate_url": self.frigate_url,
-                                            })
-                                        result_str = f"Showing live feed for camera '{camera}'."
+                                        # Fuzzy match camera name
+                                        matched = None
+                                        camera_lower = camera.lower().replace("ü", "u").replace("ä", "a").replace("ö", "o").replace("ß", "ss")
+                                        for cam in self.frigate_cameras:
+                                            cam_lower = cam.lower()
+                                            if cam_lower == camera_lower or cam_lower in camera_lower or camera_lower in cam_lower:
+                                                matched = cam
+                                                break
+
+                                        if not matched:
+                                            result_str = f"Camera '{camera}' not found. Available: {', '.join(self.frigate_cameras)}"
+                                        else:
+                                            snapshot_url = f"{self.frigate_url}/api/{matched}/latest.jpg"
+                                            print(f"[ADA DEBUG] [CAMERA] Matched '{camera}' -> '{matched}', URL: {snapshot_url}")
+                                            if self.on_web_data:
+                                                self.on_web_data({
+                                                    "type": "camera_feed",
+                                                    "camera": matched,
+                                                    "snapshot_url": snapshot_url,
+                                                    "frigate_url": self.frigate_url,
+                                                })
+                                            result_str = f"Showing live feed for camera '{matched}'."
 
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": result_str}
@@ -1416,6 +1419,19 @@ class AudioLoop:
                             print(f"[ADA] Loaded {len(self.ha_agent.entities)} Home Assistant entities")
                         except Exception as e:
                             print(f"[ADA] Failed to fetch HA entities: {e}")
+
+                    # Pre-fetch Frigate cameras
+                    if self.frigate_url:
+                        try:
+                            import aiohttp
+                            async with aiohttp.ClientSession() as sess:
+                                async with sess.get(f"{self.frigate_url}/api/config", timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                                    if resp.status == 200:
+                                        config = await resp.json()
+                                        self.frigate_cameras = list(config.get("cameras", {}).keys())
+                                        print(f"[ADA] Loaded {len(self.frigate_cameras)} Frigate cameras: {self.frigate_cameras}")
+                        except Exception as e:
+                            print(f"[ADA] Failed to fetch Frigate cameras: {e}")
 
                     tg.create_task(self.send_realtime())
                     tg.create_task(self.listen_audio())
