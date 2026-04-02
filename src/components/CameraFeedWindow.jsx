@@ -52,7 +52,8 @@ const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], segMasks, seg
                 <img
                     src={imgSrc}
                     alt={camera}
-                    className="w-full h-full object-contain"
+                    className="w-full h-full"
+                    style={{ objectFit: 'contain' }}
                 />
                 {/* Annotation overlay */}
                 {annotations.length > 0 && (
