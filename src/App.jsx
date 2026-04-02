@@ -136,6 +136,9 @@ function App() {
     const sourceRef = useRef(null);
     const animationFrameRef = useRef(null);
 
+    // Mute ref for audio processor closure
+    const isMutedRef = useRef(true);
+
     // Browser audio I/O refs
     const micStreamRef = useRef(null);
     const micProcessorRef = useRef(null);
@@ -779,6 +782,7 @@ function App() {
 
             const contextRate = audioContextRef.current.sampleRate;
             processorNode.onaudioprocess = (e) => {
+                if (isMutedRef.current) return;
                 const float32 = e.inputBuffer.getChannelData(0);
 
                 // Resample to 16kHz if needed
@@ -803,6 +807,10 @@ function App() {
 
             const updateMicData = () => {
                 if (!analyserRef.current) return;
+                if (isMutedRef.current) {
+                    animationFrameRef.current = requestAnimationFrame(updateMicData);
+                    return;
+                }
                 const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
                 analyserRef.current.getByteFrequencyData(dataArray);
                 setMicAudioData(Array.from(dataArray));
@@ -1209,9 +1217,13 @@ function App() {
         if (isMuted) {
             socket.emit('resume_audio');
             setIsMuted(false);
+            isMutedRef.current = false;
         } else {
             socket.emit('pause_audio');
             setIsMuted(true);
+            isMutedRef.current = true;
+            // Clear mic visualizer when muted
+            setMicAudioData(new Array(32).fill(0));
         }
     };
 
