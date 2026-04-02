@@ -35,7 +35,7 @@ tests/                     — Pytest test suite
 - **Backend:** Python, FastAPI, Socket.IO (async), Google GenAI SDK, aiohttp
 - **Desktop:** Electron 28 (optional — app also runs as pure web app)
 - **AI:** Google Gemini Live API (multimodal — audio, video, screen share)
-- **Agents:** build123d (CAD), Playwright (web), python-kasa (smart home), Home Assistant REST API, OctoPrint/Moonraker (3D printing), MediaPipe (face/hand tracking), Frigate NVR (camera feeds)
+- **Agents:** build123d (CAD), Playwright (web), python-kasa (smart home), Home Assistant REST API, OctoPrint/Moonraker (3D printing), MediaPipe (face/hand tracking), Frigate NVR (camera feeds), SymPy (math computation)
 
 ## Audio Architecture
 
@@ -55,7 +55,7 @@ Tools are defined in `ada.py` and dispatched in `AudioLoop.receive_audio()`. Add
 4. Add the `elif fc.name == "your_tool":` handler
 5. Add to `DEFAULT_SETTINGS["tool_permissions"]` in `server.py`
 
-Current tools: `generate_cad`, `iterate_cad`, `run_web_agent`, `control_light`, `list_smart_devices`, `ha_list_entities`, `ha_control`, `ha_get_state`, `set_reminder`, `list_reminders`, `cancel_reminder`, `discover_printers`, `print_stl`, `get_print_status`, `show_camera`, `stop_camera`, `annotate_camera`, file/project management tools.
+Current tools: `generate_cad`, `iterate_cad`, `run_web_agent`, `control_light`, `list_smart_devices`, `ha_list_entities`, `ha_control`, `ha_get_state`, `set_reminder`, `list_reminders`, `cancel_reminder`, `discover_printers`, `print_stl`, `get_print_status`, `show_camera`, `stop_camera`, `annotate_camera`, `calculate`, file/project management tools.
 
 ## Settings
 
