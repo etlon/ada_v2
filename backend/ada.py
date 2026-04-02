@@ -30,6 +30,25 @@ SEND_SAMPLE_RATE = 16000
 RECEIVE_SAMPLE_RATE = 24000
 CHUNK_SIZE = 1024
 
+
+class AsyncTimeoutIterator:
+    """Wraps an async iterator with a per-item timeout.
+    Raises asyncio.TimeoutError if no item arrives within `timeout` seconds."""
+    def __init__(self, aiterable, timeout):
+        self._ait = aiterable.__aiter__()
+        self._timeout = timeout
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        try:
+            return await asyncio.wait_for(self._ait.__anext__(), timeout=self._timeout)
+        except StopAsyncIteration:
+            raise
+        except asyncio.TimeoutError:
+            raise asyncio.TimeoutError(f"No data received from Gemini for {self._timeout}s — connection likely dead")
+
 MODEL = "models/gemini-2.5-flash-native-audio-preview-12-2025"
 DEFAULT_MODE = "camera"
 
@@ -557,9 +576,22 @@ class AudioLoop:
         # No event signal needed - listen_audio pulls it
 
     async def send_realtime(self):
+        # 16kHz mono 16-bit silence: 100ms = 3200 bytes of zeros
+        KEEPALIVE_SILENCE = b'\x00' * 3200
+        KEEPALIVE_INTERVAL = 15  # seconds
+
         while True:
-            msg = await self.out_queue.get()
-            await self.session.send(input=msg, end_of_turn=False)
+            try:
+                # Wait for a message, but send keepalive if idle too long
+                msg = await asyncio.wait_for(self.out_queue.get(), timeout=KEEPALIVE_INTERVAL)
+            except asyncio.TimeoutError:
+                # Nothing to send — send silence keepalive to prevent idle disconnect
+                msg = {"data": KEEPALIVE_SILENCE, "mime_type": "audio/pcm"}
+            try:
+                await self.session.send(input=msg, end_of_turn=False)
+            except Exception as e:
+                print(f"[ADA] [SEND] Error sending to Gemini: {e}")
+                raise  # Crash TaskGroup → trigger reconnect
 
     def feed_audio(self, data):
         """Feed audio data from browser into the processing queue."""
@@ -691,7 +723,10 @@ class AudioLoop:
                             image_bytes = await resp.read()
                             b64_data = base64.b64encode(image_bytes).decode()
                             if self.out_queue:
-                                await self.out_queue.put({"mime_type": "image/jpeg", "data": b64_data})
+                                try:
+                                    self.out_queue.put_nowait({"mime_type": "image/jpeg", "data": b64_data})
+                                except asyncio.QueueFull:
+                                    pass  # Skip frame if queue congested
             except asyncio.CancelledError:
                 raise
             except Exception as e:
@@ -713,9 +748,12 @@ class AudioLoop:
             try:
                 data = await self.browser_audio_queue.get()
 
-                # Send Audio to Gemini
+                # Send Audio to Gemini (non-blocking — drop if queue full to avoid stall)
                 if self.out_queue:
-                    await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
+                    try:
+                        self.out_queue.put_nowait({"data": data, "mime_type": "audio/pcm"})
+                    except asyncio.QueueFull:
+                        pass  # Drop frame rather than blocking the audio pipeline
 
                 # VAD Logic for Video
                 count = len(data) // 2
@@ -732,7 +770,10 @@ class AudioLoop:
                         self._is_speaking = True
                         print(f"[ADA DEBUG] [VAD] Speech Detected (RMS: {rms}). Sending Video Frame.")
                         if self._latest_image_payload and self.out_queue:
-                            await self.out_queue.put(self._latest_image_payload)
+                            try:
+                                self.out_queue.put_nowait(self._latest_image_payload)
+                            except asyncio.QueueFull:
+                                pass
                 else:
                     if self._is_speaking:
                         if self._silence_start_time is None:
@@ -916,10 +957,11 @@ class AudioLoop:
 
     async def receive_audio(self):
         "Background task to reads from the websocket and write pcm chunks to the output queue"
+        RECEIVE_TIMEOUT = 60  # seconds — if no data for this long, assume connection dead
         try:
             while True:
                 turn = self.session.receive()
-                async for response in turn:
+                async for response in AsyncTimeoutIterator(turn, timeout=RECEIVE_TIMEOUT):
                     # 1. Handle Audio Data
                     if data := response.data:
                         self.audio_in_queue.put_nowait(data)
@@ -1669,7 +1711,10 @@ class AudioLoop:
         while True:
             bytestream = await self.audio_in_queue.get()
             if self.on_audio_data:
-                self.on_audio_data(bytestream)
+                try:
+                    self.on_audio_data(bytestream)
+                except Exception as e:
+                    print(f"[ADA] [PLAY] Error forwarding audio: {e}")
 
     async def get_frames(self):
         cap = await asyncio.to_thread(cv2.VideoCapture, 0, cv2.CAP_AVFOUNDATION)
@@ -1717,7 +1762,7 @@ class AudioLoop:
                     self.session = session
 
                     self.audio_in_queue = asyncio.Queue()
-                    self.out_queue = asyncio.Queue(maxsize=10)
+                    self.out_queue = asyncio.Queue(maxsize=50)
 
                     # Pre-fetch Home Assistant entities
                     if self.ha_agent.configured:
