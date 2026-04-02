@@ -240,6 +240,7 @@ class AudioLoop:
 
         self.audio_in_queue = None
         self.out_queue = None
+        self.browser_audio_queue = asyncio.Queue()
         self.paused = False
 
         self.session = None
@@ -347,88 +348,33 @@ class AudioLoop:
             msg = await self.out_queue.get()
             await self.session.send(input=msg, end_of_turn=False)
 
-    async def listen_audio(self):
-        mic_info = pya.get_default_input_device_info()
-
-        # Resolve Input Device by Name if provided
-        resolved_input_device_index = None
-        
-        if self.input_device_name:
-            print(f"[ADA] Attempting to find input device matching: '{self.input_device_name}'")
-            count = pya.get_device_count()
-            best_match = None
-            
-            for i in range(count):
-                try:
-                    info = pya.get_device_info_by_index(i)
-                    if info['maxInputChannels'] > 0:
-                        name = info.get('name', '')
-                        # Simple case-insensitive check
-                        if self.input_device_name.lower() in name.lower() or name.lower() in self.input_device_name.lower():
-                             print(f"   Candidate {i}: {name}")
-                             # Prioritize exact match or very close match if possible, but first match is okay for now
-                             resolved_input_device_index = i
-                             best_match = name
-                             break
-                except Exception:
-                    continue
-            
-            if resolved_input_device_index is not None:
-                print(f"[ADA] Resolved input device '{self.input_device_name}' to index {resolved_input_device_index} ({best_match})")
-            else:
-                print(f"[ADA] Could not find device matching '{self.input_device_name}'. Checking index...")
-
-        # Fallback to index if Name lookup failed or wasn't provided
-        if resolved_input_device_index is None and self.input_device_index is not None:
-             try:
-                 resolved_input_device_index = int(self.input_device_index)
-                 print(f"[ADA] Requesting Input Device Index: {resolved_input_device_index}")
-             except ValueError:
-                 print(f"[ADA] Invalid device index '{self.input_device_index}', reverting to default.")
-                 resolved_input_device_index = None
-
-        if resolved_input_device_index is None:
-             print("[ADA] Using Default Input Device")
-
+    def feed_audio(self, data):
+        """Feed audio data from browser into the processing queue."""
         try:
-            self.audio_stream = await asyncio.to_thread(
-                pya.open,
-                format=FORMAT,
-                channels=CHANNELS,
-                rate=SEND_SAMPLE_RATE,
-                input=True,
-                input_device_index=resolved_input_device_index if resolved_input_device_index is not None else mic_info["index"],
-                frames_per_buffer=CHUNK_SIZE,
-            )
-        except OSError as e:
-            print(f"[ADA] [ERR] Failed to open audio input stream: {e}")
-            print("[ADA] [WARN] Audio features will be disabled. Please check microphone permissions.")
-            return
+            self.browser_audio_queue.put_nowait(data)
+        except asyncio.QueueFull:
+            pass  # Drop frames if queue is full
 
-        if __debug__:
-            kwargs = {"exception_on_overflow": False}
-        else:
-            kwargs = {}
-        
+    async def listen_audio(self):
+        print("[ADA] Listening for browser audio...")
+
         # VAD Constants
-        VAD_THRESHOLD = 800 # Adj based on mic sensitivity (800 is conservative for 16-bit)
-        SILENCE_DURATION = 0.5 # Seconds of silence to consider "done speaking"
-        
+        VAD_THRESHOLD = 800
+        SILENCE_DURATION = 0.5
+
         while True:
             if self.paused:
                 await asyncio.sleep(0.1)
                 continue
 
             try:
-                data = await asyncio.to_thread(self.audio_stream.read, CHUNK_SIZE, **kwargs)
-                
-                # 1. Send Audio
+                data = await self.browser_audio_queue.get()
+
+                # Send Audio to Gemini
                 if self.out_queue:
                     await self.out_queue.put({"data": data, "mime_type": "audio/pcm"})
-                
-                # 2. VAD Logic for Video
-                # rms = audioop.rms(data, 2)
-                # Replacement for audioop.rms(data, 2)
+
+                # VAD Logic for Video
                 count = len(data) // 2
                 if count > 0:
                     shorts = struct.unpack(f"<{count}h", data)
@@ -436,36 +382,24 @@ class AudioLoop:
                     rms = int(math.sqrt(sum_squares / count))
                 else:
                     rms = 0
-                
+
                 if rms > VAD_THRESHOLD:
-                    # Speech Detected
                     self._silence_start_time = None
-                    
                     if not self._is_speaking:
-                        # NEW Speech Utterance Started
                         self._is_speaking = True
                         print(f"[ADA DEBUG] [VAD] Speech Detected (RMS: {rms}). Sending Video Frame.")
-                        
-                        # Send ONE frame
                         if self._latest_image_payload and self.out_queue:
                             await self.out_queue.put(self._latest_image_payload)
-                        else:
-                            print(f"[ADA DEBUG] [VAD] No video frame available to send.")
-                            
                 else:
-                    # Silence
                     if self._is_speaking:
                         if self._silence_start_time is None:
                             self._silence_start_time = time.time()
-                        
                         elif time.time() - self._silence_start_time > SILENCE_DURATION:
-                            # Silence confirmed, reset state
-                            print(f"[ADA DEBUG] [VAD] Silence detected. Resetting speech state.")
                             self._is_speaking = False
                             self._silence_start_time = None
 
             except Exception as e:
-                print(f"Error reading audio: {e}")
+                print(f"Error processing browser audio: {e}")
                 await asyncio.sleep(0.1)
 
     async def handle_cad_request(self, prompt):
@@ -1124,28 +1058,11 @@ class AudioLoop:
             raise e
 
     async def play_audio(self):
-        try:
-            stream = await asyncio.to_thread(
-                pya.open,
-                format=FORMAT,
-                channels=CHANNELS,
-                rate=RECEIVE_SAMPLE_RATE,
-                output=True,
-                output_device_index=self.output_device_index,
-            )
-        except OSError as e:
-            print(f"[ADA] [ERR] Failed to open audio output stream: {e}")
-            print("[ADA] [WARN] Audio playback disabled. Responses will be text-only.")
-            while True:
-                bytestream = await self.audio_in_queue.get()
-                if self.on_audio_data:
-                    self.on_audio_data(bytestream)
-            return
+        """Forward audio from Gemini to the browser via callback."""
         while True:
             bytestream = await self.audio_in_queue.get()
             if self.on_audio_data:
                 self.on_audio_data(bytestream)
-            await asyncio.to_thread(stream.write, bytestream)
 
     async def get_frames(self):
         cap = await asyncio.to_thread(cv2.VideoCapture, 0, cv2.CAP_AVFOUNDATION)
@@ -1267,12 +1184,7 @@ class AudioLoop:
                 is_reconnect = True # Next loop will be a reconnect
                 
             finally:
-                # Cleanup before retry
-                if hasattr(self, 'audio_stream') and self.audio_stream:
-                    try:
-                        self.audio_stream.close()
-                    except: 
-                        pass
+                pass
 
 def get_input_devices():
     p = pyaudio.PyAudio()

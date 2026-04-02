@@ -136,6 +136,12 @@ function App() {
     const sourceRef = useRef(null);
     const animationFrameRef = useRef(null);
 
+    // Browser audio I/O refs
+    const micStreamRef = useRef(null);
+    const micProcessorRef = useRef(null);
+    const playbackCtxRef = useRef(null);
+    const playbackNextTimeRef = useRef(0);
+
     // Video Refs
     const videoRef = useRef(null);
     const canvasRef = useRef(null);
@@ -337,6 +343,10 @@ function App() {
         });
         socket.on('audio_data', (data) => {
             setAiAudioData(data.data);
+            // Play audio from Gemini in browser
+            if (data.audio) {
+                playAudioChunk(data.audio);
+            }
         });
         socket.on('auth_status', (data) => {
             console.log("Auth Status:", data);
@@ -680,19 +690,92 @@ function App() {
         }
     }, [selectedMicId]);
 
+    // Play received PCM audio (24kHz, mono, 16-bit) from Gemini via Web Audio API
+    const playAudioChunk = (base64Audio) => {
+        if (!playbackCtxRef.current || playbackCtxRef.current.state === 'closed') {
+            playbackCtxRef.current = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+            playbackNextTimeRef.current = 0;
+        }
+        const ctx = playbackCtxRef.current;
+
+        // Decode base64 to Int16 PCM
+        const binaryStr = atob(base64Audio);
+        const len = binaryStr.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) bytes[i] = binaryStr.charCodeAt(i);
+        const int16 = new Int16Array(bytes.buffer);
+
+        // Convert Int16 to Float32 for Web Audio
+        const float32 = new Float32Array(int16.length);
+        for (let i = 0; i < int16.length; i++) {
+            float32[i] = int16[i] / 32768;
+        }
+
+        const buffer = ctx.createBuffer(1, float32.length, 24000);
+        buffer.getChannelData(0).set(float32);
+
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+
+        // Route to selected speaker if setSinkId is available
+        if (selectedSpeakerId && ctx.setSinkId) {
+            ctx.setSinkId(selectedSpeakerId).catch(() => {});
+        }
+
+        source.connect(ctx.destination);
+
+        // Schedule seamless playback
+        const now = ctx.currentTime;
+        const startTime = Math.max(now, playbackNextTimeRef.current);
+        source.start(startTime);
+        playbackNextTimeRef.current = startTime + buffer.duration;
+    };
+
     const startMicVisualizer = async (deviceId) => {
         stopMicVisualizer();
         try {
             const stream = await navigator.mediaDevices.getUserMedia({
-                audio: { deviceId: { exact: deviceId } }
+                audio: { deviceId: { exact: deviceId }, sampleRate: { ideal: 16000 }, channelCount: 1 }
             });
+            micStreamRef.current = stream;
 
+            // Try 16kHz, but browsers may force a higher rate (e.g., 48kHz)
             audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)();
             analyserRef.current = audioContextRef.current.createAnalyser();
             analyserRef.current.fftSize = 64;
 
             sourceRef.current = audioContextRef.current.createMediaStreamSource(stream);
             sourceRef.current.connect(analyserRef.current);
+
+            // Capture and send PCM audio to backend
+            const processorNode = audioContextRef.current.createScriptProcessor(1024, 1, 1);
+            sourceRef.current.connect(processorNode);
+            processorNode.connect(audioContextRef.current.destination);
+            micProcessorRef.current = processorNode;
+
+            const contextRate = audioContextRef.current.sampleRate;
+            processorNode.onaudioprocess = (e) => {
+                const float32 = e.inputBuffer.getChannelData(0);
+
+                // Resample to 16kHz if needed
+                let samples = float32;
+                if (contextRate !== 16000) {
+                    const ratio = contextRate / 16000;
+                    const newLen = Math.floor(float32.length / ratio);
+                    samples = new Float32Array(newLen);
+                    for (let i = 0; i < newLen; i++) {
+                        samples[i] = float32[Math.floor(i * ratio)];
+                    }
+                }
+
+                // Convert float32 [-1,1] to int16 PCM
+                const int16 = new Int16Array(samples.length);
+                for (let i = 0; i < samples.length; i++) {
+                    const s = Math.max(-1, Math.min(1, samples[i]));
+                    int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                }
+                socket.emit('browser_audio', int16.buffer);
+            };
 
             const updateMicData = () => {
                 if (!analyserRef.current) return;
@@ -710,8 +793,16 @@ function App() {
 
     const stopMicVisualizer = () => {
         if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+        if (micProcessorRef.current) {
+            micProcessorRef.current.disconnect();
+            micProcessorRef.current = null;
+        }
         if (sourceRef.current) sourceRef.current.disconnect();
         if (audioContextRef.current) audioContextRef.current.close();
+        if (micStreamRef.current) {
+            micStreamRef.current.getTracks().forEach(t => t.stop());
+            micStreamRef.current = null;
+        }
     };
 
     const startVideo = async () => {

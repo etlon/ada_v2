@@ -218,11 +218,13 @@ async def start_audio(sid, data=None):
              return
 
 
-    # Callback to send audio data to frontend
+    # Callback to send audio data to frontend for playback and visualization
     def on_audio_data(data_bytes):
-        # We need to schedule this on the event loop
-        # This is high frequency, so we might want to downsample or batch if it's too much
-        asyncio.create_task(sio.emit('audio_data', {'data': list(data_bytes)}))
+        import base64
+        asyncio.create_task(sio.emit('audio_data', {
+            'data': list(data_bytes),
+            'audio': base64.b64encode(data_bytes).decode('ascii')
+        }))
 
     # Callback to send CAL data to frontend
     def on_cad_data(data):
@@ -407,6 +409,12 @@ async def resume_audio(sid):
         audio_loop.set_paused(False)
         print("Resuming Audio")
         await sio.emit('status', {'msg': 'Audio Resumed'})
+
+@sio.event
+async def browser_audio(sid, data):
+    """Receive PCM audio chunks from the browser microphone."""
+    if audio_loop:
+        audio_loop.feed_audio(bytes(data))
 
 @sio.event
 async def confirm_tool(sid, data):
