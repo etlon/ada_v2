@@ -22,3 +22,5 @@ python-dotenv
 mediapipe
 # CAD Generation
 build123d
+# Math computation
+sympy
