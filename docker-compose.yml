@@ -1,0 +1,14 @@
+services:
+  ada:
+    image: ghcr.io/etlon/ada_v2:latest
+    container_name: ada-v2
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - HOST=0.0.0.0
+      - PORT=8000
+    volumes:
+      - /mnt/user/appdata/ada-v2/settings.json:/app/backend/settings.json
+      - /mnt/user/appdata/ada-v2/projects:/app/backend/projects

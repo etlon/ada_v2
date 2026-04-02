@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.git/
+.env
+__pycache__/
+*.pyc
+electron/
+.github/
+tests/
+*.md
+LICENSE
+trace.txt

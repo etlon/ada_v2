@@ -9,6 +9,8 @@ if sys.platform == 'win32':
 import socketio
 import uvicorn
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 import asyncio
 import threading
 import sys
@@ -127,6 +129,15 @@ async def startup_event():
 @app.get("/status")
 async def status():
     return {"status": "running", "service": "A.D.A Backend"}
+
+# Serve frontend static files in Docker/production mode
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "dist"
+if FRONTEND_DIR.is_dir():
+    @app.get("/")
+    async def serve_index():
+        return FileResponse(FRONTEND_DIR / "index.html")
+
+    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR)), name="frontend")
 
 @sio.event
 async def connect(sid, environ):
@@ -980,9 +991,9 @@ async def update_tool_permissions(sid, data):
 
 if __name__ == "__main__":
     uvicorn.run(
-        "server:app_socketio", 
-        host="127.0.0.1", 
-        port=8000, 
+        "server:app_socketio",
+        host=os.getenv("HOST", "127.0.0.1"),
+        port=int(os.getenv("PORT", "8000")),
         reload=False, # Reload enabled causes spawn of worker which might miss the event loop policy patch
         loop="asyncio",
         reload_excludes=["temp_cad_gen.py", "output.stl", "*.stl"]
