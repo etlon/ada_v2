@@ -1,6 +1,6 @@
 import { pipeline, SamModel, AutoProcessor, RawImage } from '@huggingface/transformers';
 
-const GROUNDING_DINO_MODEL = 'onnx-community/grounding-dino-tiny-ONNX';
+const DETECTION_MODEL = 'onnx-community/owlv2-base-patch16-ensemble-ONNX';
 const SAM_MODEL = 'Xenova/slimsam-77-uniform';
 
 class SegmentationEngine {
@@ -35,12 +35,13 @@ class SegmentationEngine {
                 }
             };
 
-            if (this.onProgress) this.onProgress({ model: 'Grounding DINO', progress: 0, status: 'downloading' });
-            this.detector = await pipeline('zero-shot-object-detection', GROUNDING_DINO_MODEL, {
+            if (this.onProgress) this.onProgress({ model: 'OWLv2 Detector', progress: 0, status: 'downloading' });
+            this.detector = await pipeline('zero-shot-object-detection', DETECTION_MODEL, {
                 device: 'webgpu',
-                progress_callback: makeProgressCb('Grounding DINO'),
+                dtype: 'q4',
+                progress_callback: makeProgressCb('OWLv2 Detector'),
             });
-            if (this.onProgress) this.onProgress({ model: 'Grounding DINO', progress: 100 });
+            if (this.onProgress) this.onProgress({ model: 'OWLv2 Detector', progress: 100 });
 
             if (this.onProgress) this.onProgress({ model: 'SlimSAM', progress: 0, status: 'downloading' });
             this.samModel = await SamModel.from_pretrained(SAM_MODEL, {
@@ -68,9 +69,7 @@ class SegmentationEngine {
 
         const { threshold = 0.15, color = 'rgba(255, 255, 0, 0.4)' } = options;
 
-        // Grounding DINO needs lowercase labels ending with a period
-        const label = textPrompt.toLowerCase().trim();
-        const labels = label.endsWith('.') ? [label] : [label + '.'];
+        const labels = [textPrompt.toLowerCase().trim()];
 
         console.log('[SEG] Image URL:', imageUrl);
         console.log('[SEG] Detecting with labels:', labels, 'threshold:', threshold);
