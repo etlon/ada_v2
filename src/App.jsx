@@ -62,6 +62,7 @@ function App() {
     const [showCadWindow, setShowCadWindow] = useState(false);
     const [showBrowserWindow, setShowBrowserWindow] = useState(false);
     const [cameraFeed, setCameraFeed] = useState(null); // { camera, snapshot_url, frigate_url }
+    const [cameraAnnotations, setCameraAnnotations] = useState([]);
 
     // Printing workflow status (for top toolbar display)
     const [slicingStatus, setSlicingStatus] = useState({ active: false, percent: 0, message: '' });
@@ -453,6 +454,11 @@ function App() {
         socket.on('browser_frame', (data) => {
             if (data.type === 'camera_feed') {
                 setCameraFeed(data);
+                setCameraAnnotations([]);
+                return;
+            }
+            if (data.type === 'camera_annotations') {
+                setCameraAnnotations(data.annotations || []);
                 return;
             }
             setBrowserData(prev => ({
@@ -1782,7 +1788,8 @@ function App() {
                             <CameraFeedWindow
                                 camera={cameraFeed.camera}
                                 snapshotUrl={cameraFeed.snapshot_url}
-                                onClose={() => setCameraFeed(null)}
+                                annotations={cameraAnnotations}
+                                onClose={() => { setCameraFeed(null); setCameraAnnotations([]); }}
                             />
                         </div>
                     </div>

@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Camera } from 'lucide-react';
 
-const CameraFeedWindow = ({ camera, snapshotUrl, onClose }) => {
+const CameraFeedWindow = ({ camera, snapshotUrl, annotations = [], onClose }) => {
     const [imgSrc, setImgSrc] = useState(`${snapshotUrl}?t=${Date.now()}`);
+    const containerRef = useRef(null);
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -18,16 +19,79 @@ const CameraFeedWindow = ({ camera, snapshotUrl, onClose }) => {
                     <Camera size={14} />
                     <span>{camera}</span>
                     <span className="text-green-400 text-[10px] animate-pulse">LIVE</span>
+                    {annotations.length > 0 && (
+                        <span className="text-yellow-400 text-[10px]">{annotations.length} annotations</span>
+                    )}
                 </div>
                 <button onClick={onClose} className="hover:bg-red-500/20 text-gray-400 hover:text-red-400 p-1 rounded transition-colors">
                     <X size={14} />
                 </button>
             </div>
-            <img
-                src={imgSrc}
-                alt={camera}
-                className="flex-1 w-full object-contain bg-black"
-            />
+            <div ref={containerRef} className="flex-1 relative bg-black">
+                <img
+                    src={imgSrc}
+                    alt={camera}
+                    className="w-full h-full object-contain"
+                />
+                {/* Annotation overlay */}
+                <svg
+                    className="absolute inset-0 w-full h-full pointer-events-none"
+                    viewBox="0 0 1 1"
+                    preserveAspectRatio="none"
+                >
+                    {annotations.map((ann, i) => {
+                        if (ann.type === 'fill') {
+                            return (
+                                <rect
+                                    key={i}
+                                    x={ann.x}
+                                    y={ann.y}
+                                    width={ann.w}
+                                    height={ann.h}
+                                    fill={ann.color}
+                                    opacity={0.3}
+                                />
+                            );
+                        }
+                        // Default: box
+                        return (
+                            <g key={i}>
+                                <rect
+                                    x={ann.x}
+                                    y={ann.y}
+                                    width={ann.w}
+                                    height={ann.h}
+                                    fill="none"
+                                    stroke={ann.color}
+                                    strokeWidth={0.003}
+                                />
+                                {ann.label && (
+                                    <g>
+                                        <rect
+                                            x={ann.x}
+                                            y={Math.max(0, ann.y - 0.03)}
+                                            width={Math.min(ann.label.length * 0.012 + 0.01, 0.3)}
+                                            height={0.028}
+                                            fill={ann.color}
+                                            opacity={0.8}
+                                        />
+                                        <text
+                                            x={ann.x + 0.005}
+                                            y={Math.max(0.02, ann.y - 0.008)}
+                                            fill="white"
+                                            fontSize={0.018}
+                                            fontFamily="monospace"
+                                            fontWeight="bold"
+                                        >
+                                            {ann.label}
+                                        </text>
+                                    </g>
+                                )}
+                            </g>
+                        );
+                    })}
+                </svg>
+            </div>
         </div>
     );
 };

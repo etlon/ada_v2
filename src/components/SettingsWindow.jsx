@@ -23,6 +23,8 @@ const TOOLS = [
     { id: 'list_reminders', label: 'List Reminders' },
     { id: 'cancel_reminder', label: 'Cancel Reminder' },
     { id: 'show_camera', label: 'Show Camera' },
+    { id: 'stop_camera', label: 'Stop Camera' },
+    { id: 'annotate_camera', label: 'Annotate Camera' },
 ];
 
 const SettingsWindow = ({

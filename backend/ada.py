@@ -315,7 +315,38 @@ stop_camera_tool = {
     }
 }
 
-tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool, ha_list_entities_tool, ha_control_tool, ha_get_state_tool, set_reminder_tool, list_reminders_tool, cancel_reminder_tool, show_camera_tool, stop_camera_tool] + tools_list[0]['function_declarations'][1:]}]
+annotate_camera_tool = {
+    "name": "annotate_camera",
+    "description": "Draws annotations (boxes, highlights, labels) on the live camera feed. Use this when the user asks to mark, highlight, color, circle, or annotate objects in the camera view. You must analyze the current camera frame and provide normalized coordinates (0.0-1.0) for each annotation relative to the image dimensions.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {
+            "annotations": {
+                "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "type": {
+                            "type": "STRING",
+                            "description": "Annotation type: 'box' for bounding box, 'fill' for filled rectangle overlay."
+                        },
+                        "x": {"type": "NUMBER", "description": "Left edge, normalized 0.0-1.0"},
+                        "y": {"type": "NUMBER", "description": "Top edge, normalized 0.0-1.0"},
+                        "w": {"type": "NUMBER", "description": "Width, normalized 0.0-1.0"},
+                        "h": {"type": "NUMBER", "description": "Height, normalized 0.0-1.0"},
+                        "color": {"type": "STRING", "description": "CSS color (e.g., 'red', '#00ff00', 'rgba(255,0,0,0.3)')"},
+                        "label": {"type": "STRING", "description": "Optional text label for the annotation."}
+                    },
+                    "required": ["type", "x", "y", "w", "h", "color"]
+                },
+                "description": "List of annotations to draw on the camera feed."
+            }
+        },
+        "required": ["annotations"]
+    }
+}
+
+tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool, ha_list_entities_tool, ha_control_tool, ha_get_state_tool, set_reminder_tool, list_reminders_tool, cancel_reminder_tool, show_camera_tool, stop_camera_tool, annotate_camera_tool] + tools_list[0]['function_declarations'][1:]}]
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are JARVIS — a highly intelligent, calm, and composed AI assistant. "
@@ -842,7 +873,7 @@ class AudioLoop:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad", "ha_list_entities", "ha_control", "ha_get_state", "set_reminder", "list_reminders", "cancel_reminder", "show_camera", "stop_camera"]:
+                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad", "ha_list_entities", "ha_control", "ha_get_state", "set_reminder", "list_reminders", "cancel_reminder", "show_camera", "stop_camera", "annotate_camera"]:
                                 prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
                                 
                                 # Check Permissions (Default to True if not set)
@@ -1398,6 +1429,20 @@ class AudioLoop:
                                     print(f"[ADA DEBUG] [TOOL] Tool Call: 'stop_camera'")
                                     await self.stop_camera_feed()
                                     result_str = "Camera feed stopped."
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "annotate_camera":
+                                    annotations = fc.args.get("annotations", [])
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'annotate_camera' {len(annotations)} annotations")
+                                    if self.on_web_data:
+                                        self.on_web_data({
+                                            "type": "camera_annotations",
+                                            "annotations": annotations,
+                                        })
+                                    result_str = f"Drew {len(annotations)} annotations on the camera feed."
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": result_str}
                                     )
