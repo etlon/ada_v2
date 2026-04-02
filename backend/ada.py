@@ -294,7 +294,7 @@ cancel_reminder_tool = {
 
 show_camera_tool = {
     "name": "show_camera",
-    "description": "Shows a live camera feed from Frigate NVR. Provide the exact camera name from the available list, or omit to list available cameras. Always list cameras first if you don't know the exact name.",
+    "description": "Shows a live camera feed from Frigate NVR and streams frames to you for visual analysis. You can then answer questions about what's visible. Provide the exact camera name, or omit to list available cameras.",
     "parameters": {
         "type": "OBJECT",
         "properties": {
@@ -306,7 +306,16 @@ show_camera_tool = {
     }
 }
 
-tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool, ha_list_entities_tool, ha_control_tool, ha_get_state_tool, set_reminder_tool, list_reminders_tool, cancel_reminder_tool, show_camera_tool] + tools_list[0]['function_declarations'][1:]}]
+stop_camera_tool = {
+    "name": "stop_camera",
+    "description": "Stops the live camera feed and stops sending frames for analysis.",
+    "parameters": {
+        "type": "OBJECT",
+        "properties": {},
+    }
+}
+
+tools = [{'google_search': {}}, {"function_declarations": [generate_cad, run_web_agent, create_project_tool, switch_project_tool, list_projects_tool, list_smart_devices_tool, control_light_tool, discover_printers_tool, print_stl_tool, get_print_status_tool, iterate_cad_tool, ha_list_entities_tool, ha_control_tool, ha_get_state_tool, set_reminder_tool, list_reminders_tool, cancel_reminder_tool, show_camera_tool, stop_camera_tool] + tools_list[0]['function_declarations'][1:]}]
 
 DEFAULT_SYSTEM_PROMPT = (
     "You are JARVIS — a highly intelligent, calm, and composed AI assistant. "
@@ -399,6 +408,8 @@ class AudioLoop:
         self.reminder_agent = ReminderAgent()
         self.frigate_url = os.getenv("FRIGATE_URL", "").rstrip("/")
         self.frigate_cameras = []  # Cached camera names
+        self._camera_feed_task = None
+        self._active_camera = None
 
         self.send_text_task = None
         self.stop_event = asyncio.Event()
@@ -495,6 +506,44 @@ class AudioLoop:
             self.browser_audio_queue.put_nowait(data)
         except asyncio.QueueFull:
             pass  # Drop frames if queue is full
+
+    async def start_camera_feed(self, camera_name):
+        """Start streaming Frigate snapshots to Gemini as visual context."""
+        await self.stop_camera_feed()
+        self._active_camera = camera_name
+        self._camera_feed_task = asyncio.create_task(self._stream_camera(camera_name))
+        print(f"[ADA] [CAMERA] Started streaming '{camera_name}' to Gemini")
+
+    async def stop_camera_feed(self):
+        """Stop streaming camera to Gemini."""
+        if self._camera_feed_task:
+            self._camera_feed_task.cancel()
+            try:
+                await self._camera_feed_task
+            except asyncio.CancelledError:
+                pass
+            self._camera_feed_task = None
+            self._active_camera = None
+            print("[ADA] [CAMERA] Stopped streaming camera to Gemini")
+
+    async def _stream_camera(self, camera_name):
+        """Periodically fetch snapshot from Frigate and send to Gemini."""
+        import aiohttp
+        url = f"{self.frigate_url}/api/{camera_name}/latest.jpg"
+        while True:
+            try:
+                async with aiohttp.ClientSession() as sess:
+                    async with sess.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                        if resp.status == 200:
+                            image_bytes = await resp.read()
+                            b64_data = base64.b64encode(image_bytes).decode()
+                            if self.out_queue:
+                                await self.out_queue.put({"mime_type": "image/jpeg", "data": b64_data})
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                print(f"[ADA] [CAMERA] Error fetching snapshot: {e}")
+            await asyncio.sleep(2)  # Send a frame every 2 seconds
 
     async def listen_audio(self):
         print("[ADA] Listening for browser audio...")
@@ -793,7 +842,7 @@ class AudioLoop:
                         print("The tool was called")
                         function_responses = []
                         for fc in response.tool_call.function_calls:
-                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad", "ha_list_entities", "ha_control", "ha_get_state", "set_reminder", "list_reminders", "cancel_reminder", "show_camera"]:
+                            if fc.name in ["generate_cad", "run_web_agent", "write_file", "read_directory", "read_file", "create_project", "switch_project", "list_projects", "list_smart_devices", "control_light", "discover_printers", "print_stl", "get_print_status", "iterate_cad", "ha_list_entities", "ha_control", "ha_get_state", "set_reminder", "list_reminders", "cancel_reminder", "show_camera", "stop_camera"]:
                                 prompt = fc.args.get("prompt", "") # Prompt is not present for all tools
                                 
                                 # Check Permissions (Default to True if not set)
@@ -1336,8 +1385,19 @@ class AudioLoop:
                                                     "snapshot_url": snapshot_url,
                                                     "frigate_url": self.frigate_url,
                                                 })
-                                            result_str = f"Showing live feed for camera '{matched}'."
+                                            # Start streaming snapshots to Gemini for visual analysis
+                                            await self.start_camera_feed(matched)
+                                            result_str = f"Showing live feed for camera '{matched}'. I can now see the camera and answer questions about what's visible."
 
+                                    function_response = types.FunctionResponse(
+                                        id=fc.id, name=fc.name, response={"result": result_str}
+                                    )
+                                    function_responses.append(function_response)
+
+                                elif fc.name == "stop_camera":
+                                    print(f"[ADA DEBUG] [TOOL] Tool Call: 'stop_camera'")
+                                    await self.stop_camera_feed()
+                                    result_str = "Camera feed stopped."
                                     function_response = types.FunctionResponse(
                                         id=fc.id, name=fc.name, response={"result": result_str}
                                     )
