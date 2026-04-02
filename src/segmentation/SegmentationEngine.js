@@ -103,18 +103,12 @@ class SegmentationEngine {
                 const { xmin, ymin, xmax, ymax } = det.box;
                 console.log('[SEG] Detection:', det.label, 'score:', det.score, 'box:', xmin, ymin, xmax, ymax);
 
-                // Use point prompt at center of bounding box (more reliable than box prompt)
                 const cx = Math.round((xmin + xmax) / 2);
                 const cy = Math.round((ymin + ymax) / 2);
                 const input_points = [[[cx, cy]]];
 
                 const inputs = await this.samProcessor(rawImage, { input_points });
-                console.log('[SEG] SAM inputs keys:', Object.keys(inputs));
-
                 const outputs = await this.samModel(inputs);
-
-                const pm = outputs.pred_masks;
-                console.log('[SEG] pred_masks dims:', pm.dims);
 
                 const scores = outputs.iou_scores.data;
                 let bestIdx = 0;
@@ -122,25 +116,79 @@ class SegmentationEngine {
                     if (scores[i] > scores[bestIdx]) bestIdx = i;
                 }
 
-                // Extract best mask from pred_masks tensor
-                const dims = pm.dims;
-                const h = dims[dims.length - 2];
-                const w = dims[dims.length - 1];
-                const maskSize = h * w;
-                const offset = bestIdx * maskSize;
-                const maskData = new Uint8Array(maskSize);
-                for (let i = 0; i < maskSize; i++) {
-                    maskData[i] = pm.data[offset + i] > 0 ? 1 : 0;
+                // Try post_process_masks to get full-resolution mask
+                let maskData, maskH, maskW;
+                try {
+                    const processed = await this.samProcessor.post_process_masks(
+                        outputs.pred_masks,
+                        inputs.original_sizes,
+                        inputs.reshaped_input_sizes
+                    );
+                    console.log('[SEG] post_process_masks result type:', typeof processed, Array.isArray(processed) ? 'array len=' + processed.length : '');
+
+                    // Inspect structure
+                    const first = processed[0];
+                    console.log('[SEG] processed[0] type:', typeof first, first?.dims ? 'tensor dims=' + first.dims : (Array.isArray(first) ? 'array len=' + first.length : ''));
+
+                    let maskTensor;
+                    if (first?.dims) {
+                        // It's a tensor directly — shape might be [num_masks, H, W]
+                        maskTensor = first;
+                    } else if (Array.isArray(first) && first[bestIdx]?.dims) {
+                        maskTensor = first[bestIdx];
+                    } else if (first?.[0]?.dims) {
+                        maskTensor = first[0];
+                    }
+
+                    if (maskTensor) {
+                        const dims = maskTensor.dims;
+                        console.log('[SEG] maskTensor dims:', dims);
+                        // Could be [num_masks, H, W] or [H, W]
+                        if (dims.length === 3) {
+                            maskH = dims[1];
+                            maskW = dims[2];
+                            const maskSize = maskH * maskW;
+                            const offset = bestIdx * maskSize;
+                            maskData = new Uint8Array(maskSize);
+                            for (let i = 0; i < maskSize; i++) {
+                                maskData[i] = maskTensor.data[offset + i] > 0 ? 1 : 0;
+                            }
+                        } else if (dims.length === 2) {
+                            maskH = dims[0];
+                            maskW = dims[1];
+                            maskData = new Uint8Array(maskH * maskW);
+                            for (let i = 0; i < maskData.length; i++) {
+                                maskData[i] = maskTensor.data[i] > 0 ? 1 : 0;
+                            }
+                        }
+                    }
+                } catch (ppErr) {
+                    console.warn('[SEG] post_process_masks failed, falling back to raw pred_masks:', ppErr.message);
+                }
+
+                // Fallback to raw pred_masks if post-processing failed
+                if (!maskData) {
+                    const pm = outputs.pred_masks;
+                    const dims = pm.dims;
+                    maskH = dims[dims.length - 2];
+                    maskW = dims[dims.length - 1];
+                    const maskSize = maskH * maskW;
+                    const offset = bestIdx * maskSize;
+                    maskData = new Uint8Array(maskSize);
+                    for (let i = 0; i < maskSize; i++) {
+                        maskData[i] = pm.data[offset + i] > 0 ? 1 : 0;
+                    }
+                    console.log('[SEG] Using raw pred_masks fallback:', maskH, 'x', maskW);
                 }
 
                 results.push({
                     label: det.label,
                     score: det.score,
                     box: det.box,
-                    mask: { data: maskData, dims: [h, w] },
+                    mask: { data: maskData, dims: [maskH, maskW] },
                     color,
                 });
-                console.log('[SEG] Mask extracted:', h, 'x', w, 'score:', scores[bestIdx].toFixed(3));
+                console.log('[SEG] Mask ready:', maskH, 'x', maskW, 'score:', scores[bestIdx].toFixed(3));
             } catch (e) {
                 console.error('[SEG] Failed to segment detection:', det.label, e);
             }
