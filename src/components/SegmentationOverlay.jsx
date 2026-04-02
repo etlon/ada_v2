@@ -1,71 +1,74 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { renderMasks } from '../segmentation/maskUtils';
+import React, { useEffect, useState } from 'react';
 
-const SegmentationOverlay = ({ masks, imgWidth, imgHeight }) => {
-    const canvasRef = useRef(null);
-    const [style, setStyle] = useState({});
-
-    // Calculate position to match object-fit:contain on sibling <img>
-    const calcPosition = useCallback(() => {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const parent = canvas.parentElement;
-        if (!parent || !imgWidth || !imgHeight) return;
-
-        const cw = parent.clientWidth;
-        const ch = parent.clientHeight;
-        const imgRatio = imgWidth / imgHeight;
-        const containerRatio = cw / ch;
-
-        let w, h, left, top;
-        if (imgRatio > containerRatio) {
-            w = cw;
-            h = cw / imgRatio;
-            left = 0;
-            top = (ch - h) / 2;
-        } else {
-            h = ch;
-            w = ch * imgRatio;
-            left = (cw - w) / 2;
-            top = 0;
-        }
-
-        setStyle({
-            position: 'absolute',
-            left: `${left}px`,
-            top: `${top}px`,
-            width: `${w}px`,
-            height: `${h}px`,
-            pointerEvents: 'none',
-            zIndex: 20,
-        });
-    }, [imgWidth, imgHeight]);
+const SegmentationOverlay = ({ masks, imgWidth, imgHeight, objectFit = 'contain' }) => {
+    const [dataUrl, setDataUrl] = useState(null);
 
     useEffect(() => {
-        calcPosition();
-        window.addEventListener('resize', calcPosition);
-        return () => window.removeEventListener('resize', calcPosition);
-    }, [calcPosition]);
-
-    useEffect(() => {
-        if (!canvasRef.current) return;
-        if (masks && masks.length > 0) {
-            renderMasks(canvasRef.current, masks, imgWidth, imgHeight);
-            calcPosition();
-        } else {
-            const ctx = canvasRef.current.getContext('2d');
-            ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        if (!masks || masks.length === 0 || !imgWidth || !imgHeight) {
+            setDataUrl(null);
+            return;
         }
-    }, [masks, imgWidth, imgHeight, calcPosition]);
 
+        // Render masks to an offscreen canvas and export as data URL
+        const canvas = document.createElement('canvas');
+        canvas.width = imgWidth;
+        canvas.height = imgHeight;
+        const ctx = canvas.getContext('2d');
+
+        for (const { mask, color } of masks) {
+            const maskData = mask.data;
+            const [h, w] = mask.dims;
+            const rgba = parseColor(color);
+
+            const imageData = ctx.createImageData(w, h);
+            for (let i = 0; i < maskData.length; i++) {
+                if (maskData[i]) {
+                    imageData.data[i * 4] = rgba[0];
+                    imageData.data[i * 4 + 1] = rgba[1];
+                    imageData.data[i * 4 + 2] = rgba[2];
+                    imageData.data[i * 4 + 3] = rgba[3];
+                }
+            }
+
+            // Draw at mask resolution then scale
+            const tmp = document.createElement('canvas');
+            tmp.width = w;
+            tmp.height = h;
+            tmp.getContext('2d').putImageData(imageData, 0, 0);
+            ctx.drawImage(tmp, 0, 0, imgWidth, imgHeight);
+        }
+
+        setDataUrl(canvas.toDataURL('image/png'));
+    }, [masks, imgWidth, imgHeight]);
+
+    if (!dataUrl) return null;
+
+    // Use an <img> with the SAME object-fit as the camera image
+    // This guarantees identical positioning/letterboxing
     return (
-        <canvas
-            ref={canvasRef}
-            width={imgWidth}
-            height={imgHeight}
-            style={style}
+        <img
+            src={dataUrl}
+            className="absolute inset-0 w-full h-full pointer-events-none z-20"
+            style={{ objectFit }}
+            alt=""
         />
     );
 };
+
+function parseColor(color) {
+    const rgbaMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
+    if (rgbaMatch) {
+        return [
+            parseInt(rgbaMatch[1]),
+            parseInt(rgbaMatch[2]),
+            parseInt(rgbaMatch[3]),
+            Math.round(parseFloat(rgbaMatch[4] ?? 1) * 255),
+        ];
+    }
+    const ctx = document.createElement('canvas').getContext('2d');
+    ctx.fillStyle = color;
+    const hex = ctx.fillStyle;
+    return [parseInt(hex.slice(1, 3), 16), parseInt(hex.slice(3, 5), 16), parseInt(hex.slice(5, 7), 16), 102];
+}
 
 export default SegmentationOverlay;
